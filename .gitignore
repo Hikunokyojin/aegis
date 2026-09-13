@@ -1,0 +1,19 @@
+# Generated artifacts — reproducible via src/aegis/, not source
+data/
+workspace/
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.venv/
+build/
+dist/
+
+# OS
+.DS_Store
+
+# Local-only project context and documentation (never pushed)
+docs/
+CLAUDE.md

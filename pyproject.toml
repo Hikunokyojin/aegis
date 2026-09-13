@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aegis"
+version = "0.1.0"
+description = "Heterogeneous-GNN vulnerability detection for C++ and Java source code."
+requires-python = ">=3.10"
+dependencies = [
+    "tree-sitter",
+    "tree-sitter-cpp==0.23.4",
+    "tree-sitter-java==0.23.5",
+    "transformers==5.16.1",
+    "torch==2.13.0",
+    "torch-geometric",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+aegis-parse = "aegis.parsing.ast_parser:main"
+aegis-embed = "aegis.embeddings.codebert_embedder:main"
+aegis-build-graph = "aegis.graphs.heterodata_builder:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
