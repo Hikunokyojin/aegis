@@ -43,3 +43,30 @@ def test_flatten_empty_relation_contributes_no_edges():
 
     # REACHING_DEF (relation index 2) had zero edges in the fixture
     assert 2 not in edge_type.tolist()
+
+
+def test_flatten_handles_relation_entirely_absent_from_graph():
+    """A graph that never declared a REACHING_DEF edge type at all (not just
+    an empty one) must not raise a KeyError."""
+    data = HeteroData()
+    data["NODE"].x = torch.randn(2, 8)
+    data["NODE", "AST", "NODE"].edge_index = torch.tensor([[0], [1]], dtype=torch.long)
+    # No CFG or REACHING_DEF edge type declared at all.
+
+    x, edge_index, edge_type = flatten_hetero_data(data)
+
+    assert edge_index.shape[1] == edge_type.shape[0] == 1
+    assert edge_type.tolist() == [0]
+
+
+def test_flatten_graph_with_zero_total_edges_returns_empty_tensors():
+    data = HeteroData()
+    data["NODE"].x = torch.randn(3, 8)
+    data["NODE", "AST", "NODE"].edge_index = torch.zeros((2, 0), dtype=torch.long)
+    data["NODE", "CFG", "NODE"].edge_index = torch.zeros((2, 0), dtype=torch.long)
+    data["NODE", "REACHING_DEF", "NODE"].edge_index = torch.zeros((2, 0), dtype=torch.long)
+
+    x, edge_index, edge_type = flatten_hetero_data(data)
+
+    assert edge_index.shape == (2, 0)
+    assert edge_type.shape == (0,)
