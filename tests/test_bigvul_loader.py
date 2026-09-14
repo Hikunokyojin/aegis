@@ -56,6 +56,16 @@ def test_source_before_and_after_are_preserved():
     assert "strncpy" in vulnerable.source_after
 
 
+def test_unrecognized_language_rows_are_skipped():
+    """BigVul is documented as C/C++-only; a stray Python row (real data can
+    contain a handful of these from unrelated commit changes) must be
+    dropped rather than mis-parsed as C++."""
+    functions = load_bigvul_csv(FIXTURE_PATH)
+
+    assert all(f.language in {"C", "CPP", "C++"} for f in functions)
+    assert not any(f.commit_id == "mno345" for f in functions)
+
+
 def test_loaded_functions_are_compatible_with_the_leak_free_splitter():
     """Integration check: BigVulFunction must be usable directly wherever
     the splitter expects objects with .function_id, without a conversion

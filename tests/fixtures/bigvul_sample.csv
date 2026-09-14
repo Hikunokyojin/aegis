@@ -3,3 +3,4 @@
 1,,,,,,,,,,,,,,,,,,http://example.com,def456,unrelated cleanup,0,other.c,1,"int add(int a, int b) { return a + b; }","int add(int a, int b) { return a + b; }",C,1,1,proj_alpha,patch text,alpha,alpha,alpha,0,combined
 2,,,,,CVE-2019-0002,,CWE-89,,,,,2019-05-01,6.0,sql injection,2019-05-01,Injection,1,http://example.com,ghi789,fix sqli,1,query.cpp,1,"void q(std::string u) { execute(\"select * from x where id = ?\"); }","void q(std::string u) { execute(\"select * from x where id = \" + u); }",CPP,1,1,proj_beta,patch text,beta,beta,beta,1,combined
 3,,,,,,,,,,,,,,,,,,http://example.com,jkl012,formatting,0,util.cpp,1,"int mul(int a, int b) { return a*b; }","int mul(int a, int b) { return a * b; }",CPP,1,1,proj_beta,patch text,beta,beta,beta,0,combined
+4,,,,,,,,,,,,,,,,,,http://example.com,mno345,unrelated python change,0,util.py,1,"def f(): pass","def f(): pass",Python,1,1,proj_gamma,patch text,gamma,gamma,gamma,0,combined
