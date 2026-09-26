@@ -27,9 +27,13 @@ NODE_TEXT_MAX_TOKENS = 64
 
 
 def parse_graphml(xml_path: Path):
-    """Extract (node_id -> joern_type), (node_id -> display_text), and
-    the filtered edge list [(src, tgt, relation), ...] from one Joern
-    GraphML export file."""
+    """Extract (node_id -> joern_type), (node_id -> display_text),
+    (node_id -> FILENAME, only present for node types that carry it, e.g.
+    METHOD), and the filtered edge list [(src, tgt, relation), ...] from one
+    Joern GraphML export file. The export may contain one function (as in
+    the original single-function pipeline) or many (as produced by batch
+    parsing many source files in one Joern invocation — see
+    aegis.graphs.multi_method_splitter)."""
     root = ET.parse(xml_path).getroot()
 
     key_to_attr = {
@@ -38,7 +42,7 @@ def parse_graphml(xml_path: Path):
         if key.get("for") == "node"
     }
 
-    node_label, node_text = {}, {}
+    node_label, node_text, node_filename = {}, {}, {}
     for node in root.iter("{http://graphml.graphdrawing.org/xmlns}node"):
         node_id = node.get("id")
         attrs = {}
@@ -51,6 +55,8 @@ def parse_graphml(xml_path: Path):
 
         text = next((attrs[a] for a in TEXT_ATTR_PRIORITY if attrs.get(a)), None)
         node_text[node_id] = text or node_label.get(node_id, "UNKNOWN")
+        if attrs.get("FILENAME"):
+            node_filename[node_id] = attrs["FILENAME"]
 
     edges = []
     for edge in root.iter("{http://graphml.graphdrawing.org/xmlns}edge"):
@@ -62,7 +68,7 @@ def parse_graphml(xml_path: Path):
         if label in KEEP_RELATIONS:
             edges.append((src, tgt, label))
 
-    return node_label, node_text, edges
+    return node_label, node_text, node_filename, edges
 
 
 def embed_nodes(tokenizer, model, texts: list[str]) -> torch.Tensor:
@@ -75,17 +81,37 @@ def embed_nodes(tokenizer, model, texts: list[str]) -> torch.Tensor:
     return outputs.last_hidden_state[:, 0, :]  # [CLS] per node, [N, 768]
 
 
-def build_graph(xml_path: Path, tokenizer, model) -> HeteroData:
-    node_label, node_text, edges = parse_graphml(xml_path)
+def build_hetero_data_from_parsed(node_ids: list[str], node_label: dict[str, str], node_text: dict[str, str],
+                                   edges: list[tuple[str, str, str]], tokenizer, model,
+                                   type_vocabulary: list[str] | None = None) -> HeteroData:
+    """Builds one HeteroData graph restricted to node_ids (a subset of the
+    keys of node_label/node_text is fine — e.g. one function's nodes out of
+    a larger multi-function parse). Edges are drawn from `edges` and kept
+    only when both endpoints are in node_ids.
 
-    node_ids = list(node_label.keys())
+    type_vocabulary: the one-hot node-type columns to use. When omitted, it
+    is inferred from the node types actually present in node_ids (the
+    original single-file behavior). When building several graphs from the
+    same batch (see aegis.graphs.multi_method_splitter), callers should pass
+    the SAME explicit type_vocabulary to every call so every graph in that
+    batch has an identical, comparable feature width — passing a type not
+    present in an explicit type_vocabulary raises, rather than silently
+    producing a mismatched width.
+    """
     global_to_local = {nid: i for i, nid in enumerate(node_ids)}
-    joern_types = sorted(set(node_label.values()))
+
+    if type_vocabulary is None:
+        joern_types = sorted({node_label[nid] for nid in node_ids})
+    else:
+        joern_types = type_vocabulary
+        unknown = {node_label[nid] for nid in node_ids} - set(joern_types)
+        if unknown:
+            raise ValueError(f"Node type(s) not in the supplied type_vocabulary: {sorted(unknown)}")
     type_to_col = {t: i for i, t in enumerate(joern_types)}
 
     one_hot = torch.zeros(len(node_ids), len(joern_types))
-    for nid, ntype in node_label.items():
-        one_hot[global_to_local[nid], type_to_col[ntype]] = 1.0
+    for nid in node_ids:
+        one_hot[global_to_local[nid], type_to_col[node_label[nid]]] = 1.0
 
     codebert_features = embed_nodes(tokenizer, model, [node_text[nid] for nid in node_ids])
     combined = torch.cat([one_hot, codebert_features], dim=1)
@@ -114,6 +140,12 @@ def build_graph(xml_path: Path, tokenizer, model) -> HeteroData:
         print(f"  WARNING: {skipped} edges skipped (dangling endpoint)")
 
     return data
+
+
+def build_graph(xml_path: Path, tokenizer, model) -> HeteroData:
+    node_label, node_text, _node_filename, edges = parse_graphml(xml_path)
+    node_ids = list(node_label.keys())
+    return build_hetero_data_from_parsed(node_ids, node_label, node_text, edges, tokenizer, model)
 
 
 def main() -> None:

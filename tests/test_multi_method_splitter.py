@@ -53,6 +53,37 @@ def two_method_graphml_path(tmp_path: Path) -> Path:
     return path
 
 
+def test_group_node_ids_by_source_file_ignores_non_method_nodes_with_filename():
+    """TYPE_DECL nodes also carry FILENAME per Joern's schema, but only
+    METHOD nodes should anchor a group — otherwise a type declaration in the
+    same file would create a spurious, disconnected second group."""
+    node_label = {"m1": "METHOD", "i1": "IDENTIFIER", "t1": "TYPE_DECL"}
+    node_filename = {"m1": "0.c", "t1": "0.c"}  # t1 shares the same filename, but isn't a METHOD
+    edges = [("m1", "i1", "AST")]
+
+    groups = group_node_ids_by_source_file(node_label, node_filename, edges)
+
+    assert set(groups["0.c"]) == {"m1", "i1"}  # t1 never enters any group on its own
+
+
+def test_group_node_ids_by_source_file_handles_a_node_reached_by_two_ast_paths():
+    """A node reachable from its METHOD via more than one AST path (e.g. two
+    distinct AST edges both pointing at the same descendant) must be added
+    to the group exactly once, not cause an infinite loop or duplicate."""
+    node_label = {"m1": "METHOD", "a": "BLOCK", "b": "BLOCK", "shared": "IDENTIFIER"}
+    node_filename = {"m1": "0.c"}
+    edges = [
+        ("m1", "a", "AST"),
+        ("m1", "b", "AST"),
+        ("a", "shared", "AST"),
+        ("b", "shared", "AST"),  # second AST path reaching the same node
+    ]
+
+    groups = group_node_ids_by_source_file(node_label, node_filename, edges)
+
+    assert groups["0.c"] == sorted({"m1", "a", "b", "shared"})
+
+
 def test_group_node_ids_by_source_file_uses_ast_reachability_from_method_nodes(two_method_graphml_path: Path):
     node_label, node_text, node_filename, edges = parse_graphml(two_method_graphml_path)
 
