@@ -20,13 +20,14 @@ Every Joern invocation goes through an injectable `runner` callable
 command construction, file discovery, splitting, saving, and missing-
 function reporting — is fully unit-testable without Joern installed.
 """
+import argparse
 import shutil
 import subprocess
 from pathlib import Path
 
 import torch
 
-from aegis.dataset.bigvul_loader import BigVulFunction
+from aegis.dataset.bigvul_loader import BigVulFunction, load_bigvul_csv
 from aegis.embeddings.codebert_embedder import load_model
 from aegis.graphs.multi_method_splitter import split_combined_graphml
 from aegis.pipeline.prepare_graph_inputs import prepare_dataset
@@ -120,3 +121,45 @@ def build_training_graphs(functions: list[BigVulFunction], output_dir: Path, bat
         print(f"{split}: {len(saved_total)} graphs saved, {len(missing_total)} functions failed to parse")
 
     return summary
+
+
+def main() -> None:
+    """Entry point for a Kaggle/Colab notebook cell:
+
+        !pip install -e .
+        !joern-parse --help   # confirm the Joern CLI is on PATH before running
+        !aegis-build-training-graphs --bigvul-csv data/bigvul/MSR_data_cleaned.csv --output-dir data/bigvul/graphs
+
+    Requires `joern-parse`/`joern-export` to already be installed and on
+    PATH (Joern is a separate CLI install — see the project README) and
+    network access for the first CodeBERT download.
+    """
+    parser = argparse.ArgumentParser(
+        description="Batch-build training graphs from BigVul via Joern (Kaggle/Colab).")
+    parser.add_argument("--bigvul-csv", type=Path, required=True, help="Path to the BigVul CSV (e.g. MSR_data_cleaned.csv)")
+    parser.add_argument("--output-dir", type=Path, required=True, help="Directory to write split source files and graphs")
+    parser.add_argument("--batch-size", type=int, default=500, help="Functions parsed per Joern invocation")
+    parser.add_argument("--train-frac", type=float, default=0.7)
+    parser.add_argument("--val-frac", type=float, default=0.15)
+    parser.add_argument("--seed", type=int, default=42)
+    args = parser.parse_args()
+
+    print(f"Loading BigVul functions from {args.bigvul_csv} ...")
+    functions = load_bigvul_csv(args.bigvul_csv)
+    print(f"Loaded {len(functions)} functions.")
+
+    summary = build_training_graphs(
+        functions, args.output_dir,
+        batch_size=args.batch_size, train_frac=args.train_frac, val_frac=args.val_frac, seed=args.seed,
+    )
+
+    total_saved = sum(s["saved"] for s in summary.values())
+    total_missing = sum(s["missing"] for s in summary.values())
+    print(f"\nDone. {total_saved} graphs saved, {total_missing} functions failed to parse across all splits.")
+    if total_missing:
+        print("Missing sample_ids are recorded per split in the returned summary "
+              "(re-run programmatically and inspect summary[split]['missing_ids'] if needed).")
+
+
+if __name__ == "__main__":
+    main()

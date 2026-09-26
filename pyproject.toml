@@ -23,6 +23,7 @@ dev = ["pytest", "pytest-cov"]
 aegis-parse = "aegis.parsing.ast_parser:main"
 aegis-embed = "aegis.embeddings.codebert_embedder:main"
 aegis-build-graph = "aegis.graphs.heterodata_builder:main"
+aegis-build-training-graphs = "aegis.pipeline.build_training_graphs:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
