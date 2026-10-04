@@ -66,6 +66,20 @@ def test_group_node_ids_by_source_file_ignores_non_method_nodes_with_filename():
     assert set(groups["0.c"]) == {"m1", "i1"}  # t1 never enters any group on its own
 
 
+def test_group_node_ids_by_source_file_excludes_joern_pseudo_files():
+    """Real Joern output (verified against an actual joern-export run) tags
+    stub METHODs for external callees like strcpy with FILENAME "<empty>",
+    and include-related ones with "<includes>". Those aren't source files,
+    so they must never become groups."""
+    node_label = {"m1": "METHOD", "i1": "IDENTIFIER", "stub": "METHOD", "inc": "METHOD", "ns": "NAMESPACE_BLOCK"}
+    node_filename = {"m1": "0.c", "stub": "<empty>", "inc": "<includes>", "ns": "<unknown>"}
+    edges = [("m1", "i1", "AST")]
+
+    groups = group_node_ids_by_source_file(node_label, node_filename, edges)
+
+    assert set(groups.keys()) == {"0.c"}
+
+
 def test_group_node_ids_by_source_file_handles_a_node_reached_by_two_ast_paths():
     """A node reachable from its METHOD via more than one AST path (e.g. two
     distinct AST edges both pointing at the same descendant) must be added
