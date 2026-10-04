@@ -43,6 +43,8 @@ def group_node_ids_by_source_file(node_label: dict[str, str], node_filename: dic
     for node_id, filename in node_filename.items():
         if node_label.get(node_id) != "METHOD":
             continue  # only METHOD nodes anchor a function's own subtree
+        if filename.startswith("<"):
+            continue  # Joern pseudo-files like <empty> (external-callee stubs) and <includes>, not real sources
         stack = [node_id]
         while stack:
             current = stack.pop()
