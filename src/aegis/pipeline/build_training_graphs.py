@@ -102,8 +102,14 @@ def build_training_graphs(functions: list[BigVulFunction], output_dir: Path, bat
 
     summary = {}
     for split, entries in manifests.items():
+        graphs_dir = output_dir / split / "graphs"
+        todo = [e for e in entries if not (graphs_dir / f"{e['sample_id']}.pt").exists()]
+        already_done = len(entries) - len(todo)
+        if already_done:
+            print(f"{split}: {already_done} graphs already saved by an earlier run, skipping them")
+
         saved_total, missing_total = [], []
-        for batch in chunk_list(entries, batch_size):
+        for batch in chunk_list(todo, batch_size):
             batch_paths = [output_dir / entry["source_path"] for entry in batch]
             workspace_dir = output_dir / split / "_joern_workspace"
 
@@ -112,12 +118,13 @@ def build_training_graphs(functions: list[BigVulFunction], output_dir: Path, bat
             for xml_file in xml_files:
                 graphs.update(split_combined_graphml(xml_file, tokenizer, model))
 
-            saved, missing = save_graphs(graphs, batch, output_dir / split / "graphs")
+            saved, missing = save_graphs(graphs, batch, graphs_dir)
             saved_total.extend(saved)
             missing_total.extend(missing)
             shutil.rmtree(workspace_dir, ignore_errors=True)
 
-        summary[split] = {"saved": len(saved_total), "missing": len(missing_total), "missing_ids": missing_total}
+        summary[split] = {"saved": len(saved_total), "already_done": already_done,
+                          "missing": len(missing_total), "missing_ids": missing_total}
         print(f"{split}: {len(saved_total)} graphs saved, {len(missing_total)} functions failed to parse")
 
     return summary

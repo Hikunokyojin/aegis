@@ -23,6 +23,22 @@ RELATION_ORDER: tuple[str, ...] = ("AST", "CFG", "REACHING_DEF")
 KEEP_RELATIONS = set(RELATION_ORDER)
 MODEL_NAME = "microsoft/codebert-base"
 TEXT_ATTR_PRIORITY = ["CODE", "NAME"]
+
+# Authoritative node-type vocabulary, extracted with javap from NodeTypes.class
+# in Joern's io.shiftleft.codepropertygraph-domain-classes_3-1.7.70.jar (the
+# library behind Joern v4.0.597). Every graph uses this same fixed list, so
+# every feature vector is the same width (43 + 768 CodeBERT = 811) no matter
+# which node types a given function happens to contain. Re-extract it if the
+# Joern version changes.
+JOERN_NODE_TYPES: tuple[str, ...] = (
+    "ANNOTATION", "ANNOTATION_LITERAL", "ANNOTATION_PARAMETER", "ANNOTATION_PARAMETER_ASSIGN",
+    "ARRAY_INITIALIZER", "BINDING", "BLOCK", "CALL", "CLOSURE_BINDING", "COMMENT", "CONFIG_FILE",
+    "CONTROL_STRUCTURE", "DEPENDENCY", "FIELD_IDENTIFIER", "FILE", "FINDING", "IDENTIFIER", "IMPORT",
+    "JUMP_LABEL", "JUMP_TARGET", "KEY_VALUE_PAIR", "LITERAL", "LOCAL", "MEMBER", "META_DATA", "METHOD",
+    "METHOD_PARAMETER_IN", "METHOD_PARAMETER_OUT", "METHOD_REF", "METHOD_RETURN", "MODIFIER", "NAMESPACE",
+    "NAMESPACE_BLOCK", "RETURN", "TAG", "TAG_NODE_PAIR", "TEMPLATE_DOM", "TYPE", "TYPE_ARGUMENT",
+    "TYPE_DECL", "TYPE_PARAMETER", "TYPE_REF", "UNKNOWN",
+)
 NODE_TEXT_MAX_TOKENS = 64
 
 
@@ -89,24 +105,17 @@ def build_hetero_data_from_parsed(node_ids: list[str], node_label: dict[str, str
     a larger multi-function parse). Edges are drawn from `edges` and kept
     only when both endpoints are in node_ids.
 
-    type_vocabulary: the one-hot node-type columns to use. When omitted, it
-    is inferred from the node types actually present in node_ids (the
-    original single-file behavior). When building several graphs from the
-    same batch (see aegis.graphs.multi_method_splitter), callers should pass
-    the SAME explicit type_vocabulary to every call so every graph in that
-    batch has an identical, comparable feature width — passing a type not
-    present in an explicit type_vocabulary raises, rather than silently
-    producing a mismatched width.
+    type_vocabulary: the one-hot node-type columns to use. Defaults to the
+    fixed JOERN_NODE_TYPES list, so every graph has the same feature width.
+    A node type outside the vocabulary raises, rather than silently producing
+    a mismatched width.
     """
     global_to_local = {nid: i for i, nid in enumerate(node_ids)}
 
-    if type_vocabulary is None:
-        joern_types = sorted({node_label[nid] for nid in node_ids})
-    else:
-        joern_types = type_vocabulary
-        unknown = {node_label[nid] for nid in node_ids} - set(joern_types)
-        if unknown:
-            raise ValueError(f"Node type(s) not in the supplied type_vocabulary: {sorted(unknown)}")
+    joern_types = list(type_vocabulary) if type_vocabulary is not None else list(JOERN_NODE_TYPES)
+    unknown = {node_label[nid] for nid in node_ids} - set(joern_types)
+    if unknown:
+        raise ValueError(f"Node type(s) not in the supplied type_vocabulary: {sorted(unknown)}")
     type_to_col = {t: i for i, t in enumerate(joern_types)}
 
     one_hot = torch.zeros(len(node_ids), len(joern_types))

@@ -58,18 +58,18 @@ def group_node_ids_by_source_file(node_label: dict[str, str], node_filename: dic
 
 def split_combined_graphml(xml_path: Path, tokenizer, model) -> dict[str, HeteroData]:
     """Parses a multi-function Joern GraphML export and returns one
-    HeteroData graph per source filename. Every graph in the returned dict
-    shares the same one-hot node-type vocabulary (derived from every type
-    present anywhere in this combined export), so graphs from the same
-    batch always have matching feature widths."""
+    HeteroData graph per source filename, all using the fixed Joern node-type
+    vocabulary (same feature width across every batch).
+
+    Files Joern failed to parse are left out: their only METHOD is Joern's
+    file-level `<global>` wrapper, with the unparsed function text stuck in an
+    UNKNOWN node. Callers then report them as missing rather than saving an
+    empty graph as if it were real."""
     node_label, node_text, node_filename, edges = parse_graphml(xml_path)
     groups = group_node_ids_by_source_file(node_label, node_filename, edges)
-    type_vocabulary = sorted(set(node_label.values()))
 
     return {
-        filename: build_hetero_data_from_parsed(
-            node_ids, node_label, node_text, edges, tokenizer, model,
-            type_vocabulary=type_vocabulary,
-        )
+        filename: build_hetero_data_from_parsed(node_ids, node_label, node_text, edges, tokenizer, model)
         for filename, node_ids in groups.items()
+        if any(node_label[nid] == "METHOD" and node_text[nid] != "<global>" for nid in node_ids)
     }

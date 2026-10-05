@@ -15,7 +15,10 @@ from pathlib import Path
 from aegis.dataset.bigvul_loader import BigVulFunction
 from aegis.dataset.leak_free_split import group_aware_split, assert_no_leakage
 
-LANGUAGE_EXTENSIONS = {"C": ".c", "CPP": ".cpp", "C++": ".cpp"}
+# Always .cpp: BigVul labels real C++ (e.g. Chrome's `Class::Method` code)
+# as "C", and Joern's C frontend emits a single UNKNOWN node for C++ it can't
+# parse. Joern's C++ frontend handles plain C too.
+LANGUAGE_EXTENSIONS = {"C": ".cpp", "CPP": ".cpp", "C++": ".cpp"}
 
 
 def language_extension(language: str) -> str:
