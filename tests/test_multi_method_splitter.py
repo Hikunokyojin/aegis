@@ -130,6 +130,40 @@ def test_split_combined_graphml_excludes_cross_function_edges(two_method_graphml
         assert reaching_def_edges.shape[1] == 0
 
 
+DEGRADED_PARSE_GRAPHML = """<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <key id="CODE" for="node" attr.name="CODE" attr.type="string"/>
+  <key id="labelV" for="node" attr.name="labelV" attr.type="string"/>
+  <key id="FILENAME" for="node" attr.name="FILENAME" attr.type="string"/>
+  <key id="labelE" for="edge" attr.name="labelE" attr.type="string"/>
+  <graph id="G" edgedefault="directed">
+    <node id="g0"><data key="labelV">METHOD</data><data key="CODE">&lt;global&gt;</data><data key="FILENAME">0.cpp</data></node>
+    <node id="m0"><data key="labelV">METHOD</data><data key="CODE">void f()</data><data key="FILENAME">0.cpp</data></node>
+    <node id="i0"><data key="labelV">IDENTIFIER</data><data key="CODE">x</data></node>
+    <node id="g1"><data key="labelV">METHOD</data><data key="CODE">&lt;global&gt;</data><data key="FILENAME">1.cpp</data></node>
+    <node id="u1"><data key="labelV">UNKNOWN</data><data key="CODE">void Foo::Bar() { unparsed }</data></node>
+    <edge source="g0" target="m0"><data key="labelE">AST</data></edge>
+    <edge source="m0" target="i0"><data key="labelE">AST</data></edge>
+    <edge source="g1" target="u1"><data key="labelE">AST</data></edge>
+  </graph>
+</graphml>
+"""
+
+
+def test_split_combined_graphml_drops_files_joern_failed_to_parse(tmp_path: Path):
+    """Seen in a real run: when Joern can't parse a function, the file gets
+    only Joern's file-level <global> METHOD plus one UNKNOWN blob holding the
+    raw text. That is not a usable graph, so it must not be returned (it then
+    shows up as "missing" instead of being saved as if it were fine)."""
+    path = tmp_path / "degraded.xml"
+    path.write_text(DEGRADED_PARSE_GRAPHML)
+    tokenizer, model = load_model()
+
+    graphs = split_combined_graphml(path, tokenizer, model)
+
+    assert set(graphs.keys()) == {"0.cpp"}
+
+
 def test_split_combined_graphml_graphs_share_a_common_feature_width(two_method_graphml_path: Path):
     """Both functions' graphs must come out of the SAME batch with the same
     feature width, even though each function individually only touches a

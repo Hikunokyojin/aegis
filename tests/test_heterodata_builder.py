@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from aegis.graphs.heterodata_builder import build_graph, build_hetero_data_from_parsed
+from aegis.graphs.heterodata_builder import build_graph, build_hetero_data_from_parsed, JOERN_NODE_TYPES
 from aegis.embeddings.codebert_embedder import load_model
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
@@ -39,6 +39,29 @@ def test_build_graph_produces_expected_shape(minimal_graphml_path: Path):
     assert len(data.edge_types) == 3  # AST, CFG, REACHING_DEF (even if empty)
     assert data["NODE"].x.shape[0] == 2  # two nodes in the fixture
     assert data["NODE"].x.shape[1] > 768  # one-hot type dims + 768 CodeBERT dims
+
+
+def test_joern_node_types_is_the_full_authoritative_list():
+    """Extracted from NodeTypes.class in Joern's
+    io.shiftleft.codepropertygraph-domain-classes_3-1.7.70.jar (43 types)."""
+    assert len(JOERN_NODE_TYPES) == 43
+    assert len(set(JOERN_NODE_TYPES)) == 43
+    for t in ("METHOD", "IDENTIFIER", "CALL", "UNKNOWN", "META_DATA", "BLOCK"):
+        assert t in JOERN_NODE_TYPES
+
+
+def test_default_vocabulary_gives_fixed_width_regardless_of_types_present():
+    """Real batches produced 791- and 793-wide features because the
+    vocabulary was inferred per batch. With no explicit vocabulary, every
+    graph must now use the fixed Joern list: 43 + 768 = 811."""
+    tokenizer, model = load_model()
+    small = build_hetero_data_from_parsed(["a"], {"a": "METHOD"}, {"a": "f"}, [], tokenizer, model)
+    larger = build_hetero_data_from_parsed(
+        ["a", "b", "c"], {"a": "METHOD", "b": "CALL", "c": "LITERAL"}, {"a": "f", "b": "g", "c": "1"}, [],
+        tokenizer, model,
+    )
+
+    assert small["NODE"].x.shape[1] == larger["NODE"].x.shape[1] == 43 + 768
 
 
 def test_build_hetero_data_from_parsed_with_explicit_vocabulary_gives_consistent_width():

@@ -129,9 +129,9 @@ TWO_METHOD_GRAPHML_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
   <key id="FILENAME" for="node" attr.name="FILENAME" attr.type="string"/>
   <key id="labelE" for="edge" attr.name="labelE" attr.type="string"/>
   <graph id="G" edgedefault="directed">
-    <node id="m1"><data key="labelV">METHOD</data><data key="CODE">f0</data><data key="FILENAME">0.c</data></node>
+    <node id="m1"><data key="labelV">METHOD</data><data key="CODE">f0</data><data key="FILENAME">0.cpp</data></node>
     <node id="i1"><data key="labelV">IDENTIFIER</data><data key="CODE">x</data></node>
-    <node id="m2"><data key="labelV">METHOD</data><data key="CODE">f1</data><data key="FILENAME">1.c</data></node>
+    <node id="m2"><data key="labelV">METHOD</data><data key="CODE">f1</data><data key="FILENAME">1.cpp</data></node>
     <node id="i2"><data key="labelV">IDENTIFIER</data><data key="CODE">y</data></node>
     <edge source="m1" target="i1"><data key="labelE">AST</data></edge>
     <edge source="m2" target="i2"><data key="labelE">AST</data></edge>
@@ -156,3 +156,25 @@ def test_build_training_graphs_end_to_end_with_fake_joern(tmp_path: Path):
     assert summary["train"]["missing"] == 0
     assert (tmp_path / "train" / "graphs" / "0.pt").exists()
     assert (tmp_path / "train" / "graphs" / "1.pt").exists()
+
+
+def test_build_training_graphs_rerun_skips_functions_already_saved(tmp_path: Path):
+    """A full run needs more than one Kaggle/Colab session. Re-running the
+    same command after an interruption must pick up where it left off, not
+    re-run Joern and CodeBERT on everything again."""
+    functions = [_make_function(0, "alpha", 1), _make_function(1, "alpha", 0)]
+    build_training_graphs(functions, tmp_path, batch_size=10, train_frac=1.0, val_frac=0.0, seed=1,
+                          runner=_fake_runner_writing_xml(TWO_METHOD_GRAPHML_TEMPLATE))
+
+    calls = []
+
+    def counting_runner(cmd, check=True):
+        calls.append(cmd[0])
+
+    summary = build_training_graphs(functions, tmp_path, batch_size=10, train_frac=1.0, val_frac=0.0, seed=1,
+                                    runner=counting_runner)
+
+    assert calls == []
+    assert summary["train"]["already_done"] == 2
+    assert summary["train"]["saved"] == 0
+    assert summary["train"]["missing"] == 0

@@ -37,8 +37,12 @@ def _make_function(sample_id: int, project: str, label: int, language: str = "C"
     )
 
 
-def test_language_extension_maps_known_languages():
-    assert language_extension("C") == ".c"
+def test_language_extension_is_cpp_for_every_language():
+    """BigVul labels real C++ (e.g. Chrome's `Class::Method` code) as "C".
+    Written as .c, Joern's C frontend can't parse it and silently emits a
+    single UNKNOWN node — 43 of 100 functions in a real run. Joern's C++
+    frontend also parses plain C, so .cpp is always safe."""
+    assert language_extension("C") == ".cpp"
     assert language_extension("CPP") == ".cpp"
     assert language_extension("C++") == ".cpp"
 
@@ -50,8 +54,8 @@ def test_write_split_sources_creates_one_file_per_function(tmp_path: Path):
 
     assert len(manifest) == 2
     written_files = sorted((tmp_path / "train").iterdir())
-    assert [f.name for f in written_files] == ["0.c", "1.cpp"]
-    assert "/* before */" in (tmp_path / "train" / "0.c").read_text()
+    assert [f.name for f in written_files] == ["0.cpp", "1.cpp"]
+    assert "/* before */" in (tmp_path / "train" / "0.cpp").read_text()
 
 
 def test_write_split_sources_manifest_has_expected_fields(tmp_path: Path):
@@ -65,7 +69,7 @@ def test_write_split_sources_manifest_has_expected_fields(tmp_path: Path):
     assert entry["language"] == "C"
     assert entry["project"] == "alpha"
     assert entry["cve_id"] == "CVE-TEST-0"
-    assert entry["source_path"] == "train/0.c"
+    assert entry["source_path"] == "train/0.cpp"
 
 
 def test_prepare_dataset_produces_leak_free_splits(tmp_path: Path):
