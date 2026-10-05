@@ -49,6 +49,9 @@ def run_joern_batch(source_paths: list[Path], workspace_dir: Path, runner=subpro
     """Copies source_paths into a fresh batch directory, runs joern-parse
     then joern-export via runner(cmd, check=True), and returns every .xml
     file discovered under the export directory afterward."""
+    # A run killed mid-batch leaves its workspace behind, and joern-export
+    # refuses to write into an --out directory that already exists.
+    shutil.rmtree(workspace_dir, ignore_errors=True)
     batch_dir = workspace_dir / "batch_src"
     batch_dir.mkdir(parents=True, exist_ok=True)
     for path in source_paths:
