@@ -82,6 +82,29 @@ def test_run_joern_batch_returns_discovered_xml_files(tmp_path: Path):
     assert xml_files[0].read_text() == "<graphml/>"
 
 
+def test_run_joern_batch_clears_leftover_workspace_from_an_interrupted_run(tmp_path: Path):
+    """Real joern-export refuses an --out directory that already exists. A
+    run killed mid-batch leaves its workspace behind, so the next attempt
+    must start from a clean workspace."""
+    source_file = tmp_path / "0.cpp"
+    source_file.write_text("void f() {}")
+    workspace_dir = tmp_path / "workspace"
+    (workspace_dir / "export").mkdir(parents=True)
+    (workspace_dir / "export" / "stale.xml").write_text("<stale/>")
+
+    def joern_like_runner(cmd, check=True):
+        if cmd[0] == "joern-export":
+            out_dir = Path(cmd[cmd.index("--out") + 1])
+            if out_dir.exists():
+                raise RuntimeError("Output directory already exists")
+            out_dir.mkdir(parents=True)
+            (out_dir / "export.xml").write_text("<graphml/>")
+
+    xml_files = run_joern_batch([source_file], workspace_dir, runner=joern_like_runner)
+
+    assert [f.name for f in xml_files] == ["export.xml"]
+
+
 def test_run_joern_batch_raises_clear_error_when_no_xml_produced(tmp_path: Path):
     source_file = tmp_path / "0.c"
     source_file.write_text("void f() {}")
