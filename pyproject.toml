@@ -14,6 +14,7 @@ dependencies = [
     "transformers==5.16.1",
     "torch==2.13.0",
     "torch-geometric>=2.8.0,<2.9.0",
+    "scikit-learn>=1.9.1,<2.0",
 ]
 
 [project.optional-dependencies]
@@ -24,6 +25,7 @@ aegis-parse = "aegis.parsing.ast_parser:main"
 aegis-embed = "aegis.embeddings.codebert_embedder:main"
 aegis-build-graph = "aegis.graphs.heterodata_builder:main"
 aegis-build-training-graphs = "aegis.pipeline.build_training_graphs:main"
+aegis-train = "aegis.training.trainer:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
