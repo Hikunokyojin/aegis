@@ -49,8 +49,9 @@ def test_load_split_turns_saved_graphs_into_trainable_examples(tmp_path: Path):
 
     assert len(examples) == 4
     first = examples[0]
-    assert first.x.shape == (3, WIDTH)
-    assert first.edge_index.shape[1] == first.edge_type.shape[0] == 3  # 2 AST + 1 CFG
+    assert first["NODE"].x.shape == (3, WIDTH)
+    assert first["NODE", "AST", "NODE"].edge_index.shape[1] == 2
+    assert first["NODE", "CFG", "NODE"].edge_index.shape[1] == 1
     assert sorted(int(e.y) for e in examples) == [0, 0, 1, 1]
 
 
