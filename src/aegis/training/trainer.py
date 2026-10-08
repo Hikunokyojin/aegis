@@ -16,25 +16,29 @@ from pathlib import Path
 
 import torch
 from sklearn.metrics import average_precision_score, f1_score
-from torch_geometric.data import Data
+from torch_geometric.data import HeteroData
 from torch_geometric.loader import DataLoader
 
-from aegis.model.graph_batching import RELATION_ORDER, flatten_hetero_data
-from aegis.model.hetero_gnn import AegisHeteroGNN, FocalLoss
+from aegis.model.hetero_gnn import NODE, AegisHeteroGNN, FocalLoss
 
 
-def load_split(graphs_dir: Path | None) -> list[Data]:
-    """Loads every saved {graph, label, sample_id} .pt file in graphs_dir as a
-    PyG Data example (x, edge_index, edge_type, y)."""
+def load_split(graphs_dir: Path | None) -> list[HeteroData]:
+    """Loads every saved {graph, label, sample_id} .pt file in graphs_dir as
+    its HeteroData graph, with the label attached as `y`."""
     if graphs_dir is None or not graphs_dir.exists():
         return []
     examples = []
     for path in sorted(graphs_dir.glob("*.pt"), key=lambda p: int(p.stem)):
         record = torch.load(path, weights_only=False)
-        x, edge_index, edge_type = flatten_hetero_data(record["graph"])
-        examples.append(Data(x=x, edge_index=edge_index, edge_type=edge_type,
-                             y=torch.tensor([record["label"]]), sample_id=record["sample_id"]))
+        graph = record["graph"]
+        graph.y = torch.tensor([record["label"]])
+        graph.sample_id = record["sample_id"]
+        examples.append(graph)
     return examples
+
+
+def _logits(model: AegisHeteroGNN, batch: HeteroData) -> torch.Tensor:
+    return model(batch[NODE].x, batch.edge_index_dict, batch[NODE].batch)
 
 
 @torch.no_grad()
@@ -42,7 +46,7 @@ def evaluate(model: AegisHeteroGNN, examples: list[Data], batch_size: int = 32) 
     model.eval()
     probs, labels = [], []
     for batch in DataLoader(examples, batch_size=batch_size):
-        logits = model(batch.x, batch.edge_index, batch.edge_type, batch.batch)
+        logits = _logits(model, batch)
         probs.extend(torch.softmax(logits, dim=1)[:, 1].tolist())
         labels.extend(batch.y.tolist())
 
@@ -65,8 +69,7 @@ def train(train_dir: Path, val_dir: Path | None, run_dir: Path, epochs: int = 20
     if not train_set:
         raise ValueError(f"No training graphs found in {train_dir}")
 
-    config = {"in_dim": train_set[0].x.shape[1], "hidden_dim": hidden_dim,
-              "num_relations": len(RELATION_ORDER), "num_layers": num_layers}
+    config = {"in_dim": train_set[0][NODE].x.shape[1], "hidden_dim": hidden_dim, "num_layers": num_layers}
     model = AegisHeteroGNN(**config)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     loss_fn = FocalLoss()
@@ -85,7 +88,7 @@ def train(train_dir: Path, val_dir: Path | None, run_dir: Path, epochs: int = 20
         total_loss, seen = 0.0, 0
         for batch in DataLoader(train_set, batch_size=batch_size, shuffle=True):
             optimizer.zero_grad()
-            loss = loss_fn(model(batch.x, batch.edge_index, batch.edge_type, batch.batch), batch.y)
+            loss = loss_fn(_logits(model, batch), batch.y)
             loss.backward()
             optimizer.step()
             total_loss += loss.item() * batch.num_graphs

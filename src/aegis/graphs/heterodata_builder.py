@@ -16,9 +16,9 @@ from torch_geometric.data import HeteroData
 from transformers import AutoTokenizer, AutoModel
 
 NS = {"g": "http://graphml.graphdrawing.org/xmlns"}
-# Stable, ordered relation list (not a set) so any code mapping relation name
-# -> integer edge_type index (see aegis.model.graph_batching) gets the same
-# mapping every run, regardless of Python's string-hash seed.
+# Stable, ordered relation list (not a set) so the model's edge-type metadata
+# (see aegis.model.hetero_gnn) is identical every run, regardless of Python's
+# string-hash seed.
 RELATION_ORDER: tuple[str, ...] = ("AST", "CFG", "REACHING_DEF")
 KEEP_RELATIONS = set(RELATION_ORDER)
 MODEL_NAME = "microsoft/codebert-base"
