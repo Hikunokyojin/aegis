@@ -181,6 +181,73 @@ def test_build_training_graphs_end_to_end_with_fake_joern(tmp_path: Path):
     assert (tmp_path / "train" / "graphs" / "1.pt").exists()
 
 
+def _fake_joern_parsing_only(parseable: set[str], calls: list):
+    """Fake runner that 'parses' only the filenames in `parseable`: for each
+    of those in the batch it emits a real METHOD, and files outside the set
+    get nothing (like Joern's real <global>-only output for code it can't
+    parse). Records every command name in `calls`."""
+    state = {}
+
+    def runner(cmd, check=True):
+        calls.append(cmd[0])
+        if cmd[0] == "joern-parse":
+            state["batch_files"] = sorted(p.name for p in Path(cmd[1]).iterdir())
+        elif cmd[0] == "joern-export":
+            nodes, edges = [], []
+            for i, name in enumerate(state["batch_files"]):
+                if name in parseable:
+                    nodes.append(f'<node id="m{i}"><data key="labelV">METHOD</data>'
+                                 f'<data key="CODE">void f{i}()</data><data key="FILENAME">{name}</data></node>')
+                    nodes.append(f'<node id="x{i}"><data key="labelV">IDENTIFIER</data><data key="CODE">x</data></node>')
+                    edges.append(f'<edge source="m{i}" target="x{i}"><data key="labelE">AST</data></edge>')
+            xml = ('<?xml version="1.0" encoding="UTF-8"?><graphml xmlns="http://graphml.graphdrawing.org/xmlns">'
+                   '<key id="CODE" for="node" attr.name="CODE" attr.type="string"/>'
+                   '<key id="labelV" for="node" attr.name="labelV" attr.type="string"/>'
+                   '<key id="FILENAME" for="node" attr.name="FILENAME" attr.type="string"/>'
+                   '<key id="labelE" for="edge" attr.name="labelE" attr.type="string"/>'
+                   '<graph id="G" edgedefault="directed">' + "".join(nodes) + "".join(edges) + "</graph></graphml>")
+            out_dir = Path(cmd[cmd.index("--out") + 1])
+            out_dir.mkdir(parents=True)
+            (out_dir / "export.xml").write_text(xml)
+    return runner
+
+
+def test_functions_that_fail_as_cpp_are_retried_as_c(tmp_path: Path):
+    """Seen in a real run: BigVul often drops a function's return type
+    (`Ins_IF(...) {`). Plain C accepts that (implicit int), C++ doesn't. So
+    anything Joern fails to parse as .cpp gets one more try as .c."""
+    functions = [_make_function(0, "alpha", 1), _make_function(1, "alpha", 0)]
+    calls = []
+
+    summary = build_training_graphs(functions, tmp_path, batch_size=10, train_frac=1.0, val_frac=0.0, seed=1,
+                                    runner=_fake_joern_parsing_only({"0.cpp", "1.c"}, calls))
+
+    assert summary["train"]["saved"] == 2
+    assert summary["train"]["missing"] == 0
+    assert (tmp_path / "train" / "graphs" / "1.pt").exists()
+    assert calls.count("joern-parse") == 2  # the .cpp pass, then one .c retry
+
+
+def test_function_failing_as_both_cpp_and_c_is_reported_missing(tmp_path: Path):
+    functions = [_make_function(0, "alpha", 1), _make_function(1, "alpha", 0)]
+
+    summary = build_training_graphs(functions, tmp_path, batch_size=10, train_frac=1.0, val_frac=0.0, seed=1,
+                                    runner=_fake_joern_parsing_only({"0.cpp"}, []))
+
+    assert summary["train"]["saved"] == 1
+    assert summary["train"]["missing_ids"] == [1]
+
+
+def test_no_c_retry_when_every_function_parses_as_cpp(tmp_path: Path):
+    functions = [_make_function(0, "alpha", 1), _make_function(1, "alpha", 0)]
+    calls = []
+
+    build_training_graphs(functions, tmp_path, batch_size=10, train_frac=1.0, val_frac=0.0, seed=1,
+                          runner=_fake_joern_parsing_only({"0.cpp", "1.cpp"}, calls))
+
+    assert calls.count("joern-parse") == 1
+
+
 def test_build_training_graphs_rerun_skips_functions_already_saved(tmp_path: Path):
     """A full run needs more than one Kaggle/Colab session. Re-running the
     same command after an interruption must pick up where it left off, not
