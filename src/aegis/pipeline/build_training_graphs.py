@@ -73,6 +73,13 @@ def run_joern_batch(source_paths: list[Path], workspace_dir: Path, runner=subpro
     return xml_files
 
 
+def _parse_batch(source_paths: list[Path], workspace_dir: Path, tokenizer, model, runner) -> dict:
+    graphs = {}
+    for xml_file in run_joern_batch(source_paths, workspace_dir, runner=runner):
+        graphs.update(split_combined_graphml(xml_file, tokenizer, model))
+    return graphs
+
+
 def save_graphs(graphs_by_filename: dict, manifest_entries: list[dict], output_dir: Path) -> tuple[list[int], list[int]]:
     """Saves each manifest entry's graph (looked up by its source file's
     basename) as {output_dir}/{sample_id}.pt containing {graph, label,
@@ -116,10 +123,26 @@ def build_training_graphs(functions: list[BigVulFunction], output_dir: Path, bat
             batch_paths = [output_dir / entry["source_path"] for entry in batch]
             workspace_dir = output_dir / split / "_joern_workspace"
 
-            xml_files = run_joern_batch(batch_paths, workspace_dir, runner=runner)
-            graphs = {}
-            for xml_file in xml_files:
-                graphs.update(split_combined_graphml(xml_file, tokenizer, model))
+            graphs = _parse_batch(batch_paths, workspace_dir, tokenizer, model, runner)
+
+            # BigVul often drops a function's return type (`Ins_IF(...) {`),
+            # which plain C accepts as implicit int but C++ rejects. Give
+            # anything that failed as .cpp one more try as .c.
+            failed = [p for p in batch_paths if p.name not in graphs]
+            if failed:
+                retry_dir = output_dir / split / "_c_retry_src"
+                shutil.rmtree(retry_dir, ignore_errors=True)
+                retry_dir.mkdir(parents=True)
+                c_paths = []
+                for path in failed:
+                    c_path = retry_dir / f"{path.stem}.c"
+                    shutil.copy(path, c_path)
+                    c_paths.append(c_path)
+                c_graphs = _parse_batch(c_paths, workspace_dir, tokenizer, model, runner)
+                for path in failed:
+                    if f"{path.stem}.c" in c_graphs:
+                        graphs[path.name] = c_graphs[f"{path.stem}.c"]
+                shutil.rmtree(retry_dir, ignore_errors=True)
 
             saved, missing = save_graphs(graphs, batch, graphs_dir)
             saved_total.extend(saved)
