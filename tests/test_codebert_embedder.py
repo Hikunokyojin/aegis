@@ -24,6 +24,12 @@ UNRELATED = """int compute_average(int a, int b, int c) {
 }"""
 
 
+def test_load_model_places_model_on_the_requested_device():
+    _, model = load_model(device="cpu")
+
+    assert next(model.parameters()).device.type == "cpu"
+
+
 def test_embedding_shape_is_768_dim():
     tokenizer, model = load_model()
     vector, token_count = embed(tokenizer, model, ORIGINAL)

@@ -93,6 +93,15 @@ def test_evaluate_gives_no_pr_auc_when_only_one_class_present(tmp_path: Path):
     assert metrics["n"] == 3
 
 
+def test_training_runs_on_an_explicitly_chosen_device(tmp_path: Path):
+    torch.manual_seed(0)
+    train_dir = _make_split(tmp_path / "train", 4)
+
+    history = train(train_dir, None, tmp_path / "run", epochs=1, hidden_dim=8, num_layers=1, device="cpu")
+
+    assert len(history) == 1
+
+
 def test_training_resumes_from_checkpoint_instead_of_restarting(tmp_path: Path):
     torch.manual_seed(0)
     train_dir = _make_split(tmp_path / "train", 8)

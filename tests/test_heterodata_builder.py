@@ -4,7 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from aegis.graphs.heterodata_builder import build_graph, build_hetero_data_from_parsed, JOERN_NODE_TYPES
+import torch
+
+from aegis.graphs.heterodata_builder import build_graph, build_hetero_data_from_parsed, embed_nodes, JOERN_NODE_TYPES
 from aegis.embeddings.codebert_embedder import load_model
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
@@ -39,6 +41,20 @@ def test_build_graph_produces_expected_shape(minimal_graphml_path: Path):
     assert len(data.edge_types) == 3  # AST, CFG, REACHING_DEF (even if empty)
     assert data["NODE"].x.shape[0] == 2  # two nodes in the fixture
     assert data["NODE"].x.shape[1] > 768  # one-hot type dims + 768 CodeBERT dims
+
+
+def test_node_embeddings_are_the_same_whether_or_not_they_are_chunked():
+    """Large functions (1,300+ nodes) are embedded in chunks so CodeBERT
+    can't run out of GPU memory; chunking must not change the result."""
+    tokenizer, model = load_model()
+    texts = ["strcpy(buffer, user_input)", "x", "int total = a + b + c;", "return total / 3;", "y++"]
+
+    chunked = embed_nodes(tokenizer, model, texts, chunk_size=2)
+    whole = embed_nodes(tokenizer, model, texts, chunk_size=100)
+
+    assert chunked.shape == (5, 768)
+    assert chunked.device.type == "cpu"
+    assert torch.allclose(chunked, whole, atol=1e-4)
 
 
 def test_joern_node_types_is_the_full_authoritative_list():

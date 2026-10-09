@@ -25,6 +25,7 @@ from aegis.pipeline.build_training_graphs import (
     joern_parse_command,
     joern_export_command,
     run_joern_batch,
+    sample_functions,
     save_graphs,
     build_training_graphs,
 )
@@ -36,6 +37,17 @@ def test_chunk_list_splits_into_expected_batch_sizes():
     batches = chunk_list(items, batch_size=3)
 
     assert batches == [[0, 1, 2], [3, 4, 5], [6]]
+
+
+def test_sample_functions_is_sized_and_repeatable():
+    functions = [_make_function(i, f"p{i % 7}", i % 2) for i in range(50)]
+
+    first = sample_functions(functions, 20, seed=1)
+    again = sample_functions(functions, 20, seed=1)
+
+    assert len(first) == 20
+    assert [f.sample_id for f in first] == [f.sample_id for f in again]
+    assert sample_functions(functions, 500, seed=1) == functions  # asking for more than exist returns all
 
 
 def test_chunk_list_handles_empty_input():
