@@ -25,26 +25,45 @@ class LeakageError(Exception):
 
 def group_aware_split(samples: list[Sample], train_frac: float = 0.7, val_frac: float = 0.15,
                        seed: int = 42) -> tuple[list[Sample], list[Sample], list[Sample]]:
+    """Splits whole groups (never individual samples) into train/val/test so
+    that each split gets roughly its share of samples AND of positive
+    (vulnerable) samples.
+
+    A plain shuffle of groups left all 5 vulnerable functions of a real
+    100-function BigVul sample in test, so nothing could be learned or
+    validated. Instead, groups are placed one at a time into the split that
+    is currently furthest below its target: groups containing positives are
+    placed first (largest first) by how full each split is of positives, the
+    rest by how full each split is of samples. Splits with a zero fraction
+    never receive anything. Group order is shuffled with `seed` first, so
+    ties are broken differently per seed but identically for the same seed.
+    """
     groups: dict[str, list[Sample]] = defaultdict(list)
     for s in samples:
         groups[s.function_id].append(s)
 
     group_ids = list(groups.keys())
-    rng = random.Random(seed)
-    rng.shuffle(group_ids)
+    random.Random(seed).shuffle(group_ids)
+    positives = {gid: sum(s.label for s in groups[gid]) for gid in group_ids}
+    group_ids.sort(key=lambda gid: positives[gid], reverse=True)  # stable: shuffle order breaks ties
 
-    n_groups = len(group_ids)
-    n_train = int(n_groups * train_frac)
-    n_val = int(n_groups * val_frac)
+    fracs = [train_frac, val_frac, 1.0 - train_frac - val_frac]
+    usable = [i for i, frac in enumerate(fracs) if frac > 0]
+    total_n, total_pos = len(samples), sum(positives.values())
+    parts: list[list[Sample]] = [[], [], []]
+    n, pos = [0, 0, 0], [0, 0, 0]
 
-    train_group_ids = set(group_ids[:n_train])
-    val_group_ids = set(group_ids[n_train:n_train + n_val])
-    test_group_ids = set(group_ids[n_train + n_val:])
+    for gid in group_ids:
+        size_fill = lambda i: n[i] / (fracs[i] * total_n)
+        if positives[gid] > 0:
+            target = min(usable, key=lambda i: (pos[i] / (fracs[i] * total_pos), size_fill(i)))
+        else:
+            target = min(usable, key=size_fill)
+        parts[target].extend(groups[gid])
+        n[target] += len(groups[gid])
+        pos[target] += positives[gid]
 
-    train = [s for gid in train_group_ids for s in groups[gid]]
-    val = [s for gid in val_group_ids for s in groups[gid]]
-    test = [s for gid in test_group_ids for s in groups[gid]]
-    return train, val, test
+    return parts[0], parts[1], parts[2]
 
 
 def assert_no_leakage(train: list[Sample], val: list[Sample], test: list[Sample]) -> None:
