@@ -9,10 +9,11 @@ into train/val/test directories, with a manifest.json per split linking
 each written file back to its label and metadata for the batch CPG step
 and later training.
 """
+import hashlib
 import json
 from pathlib import Path
 
-from aegis.dataset.bigvul_loader import BigVulFunction
+from aegis.dataset.bigvul_loader import BigVulFunction, regroup_oversized_projects
 from aegis.dataset.leak_free_split import group_aware_split, assert_no_leakage
 
 # Always .cpp: BigVul labels real C++ (e.g. Chrome's `Class::Method` code)
@@ -42,7 +43,8 @@ def write_split_sources(split_name: str, functions: list[BigVulFunction], output
             "source_path": f"{split_name}/{file_path.name}",
             "label": fn.label,
             "language": fn.language,
-            "project": fn.function_id,
+            "project": fn.function_id.split("::")[0],
+            "group": fn.function_id,
             "cve_id": fn.cve_id,
             "cwe_id": fn.cwe_id,
             "commit_id": fn.commit_id,
@@ -50,14 +52,41 @@ def write_split_sources(split_name: str, functions: list[BigVulFunction], output
     return manifest
 
 
+def _check_or_record_split(output_dir: Path, splits: dict[str, list[BigVulFunction]], settings: dict) -> None:
+    """Records which sample went to which split in output_dir/split.json, and
+    refuses an output_dir that was built with a different split. Re-runs skip
+    graphs that already exist, so reusing a directory with a changed split
+    would leave old graphs in one split while the same functions also land
+    in another — a leak."""
+    assignment = {name: sorted(fn.sample_id for fn in fns) for name, fns in splits.items()}
+    fingerprint = hashlib.sha256(json.dumps(assignment).encode()).hexdigest()
+    record_path = output_dir / "split.json"
+    if record_path.exists():
+        recorded = json.loads(record_path.read_text())
+        if recorded["fingerprint"] != fingerprint:
+            raise ValueError(
+                f"{output_dir} was built with a different split (recorded settings: {recorded['settings']}, "
+                f"now: {settings}). Use a fresh output directory, or delete this one to rebuild from scratch."
+            )
+        return
+    output_dir.mkdir(parents=True, exist_ok=True)
+    record_path.write_text(json.dumps({"fingerprint": fingerprint, "settings": settings,
+                                       "counts": {name: len(ids) for name, ids in assignment.items()}}, indent=2))
+
+
 def prepare_dataset(functions: list[BigVulFunction], output_dir: Path,
                      train_frac: float = 0.7, val_frac: float = 0.15,
-                     seed: int = 42) -> dict[str, list[dict]]:
-    """Leak-free splits functions (grouped by project) and writes each split
-    to output_dir/{train,val,test}/, each with its own manifest.json.
-    Returns the same manifests as an in-memory dict keyed by split name."""
+                     seed: int = 42, max_project_frac: float = 0.10) -> dict[str, list[dict]]:
+    """Leak-free splits functions (grouped by project, or by project+file for
+    projects above max_project_frac of the dataset) and writes each split to
+    output_dir/{train,val,test}/, each with its own manifest.json. Returns the
+    same manifests as an in-memory dict keyed by split name."""
+    functions = regroup_oversized_projects(functions, max_project_frac=max_project_frac)
     train, val, test = group_aware_split(functions, train_frac=train_frac, val_frac=val_frac, seed=seed)
     assert_no_leakage(train, val, test)
+    _check_or_record_split(output_dir, {"train": train, "val": val, "test": test},
+                           {"train_frac": train_frac, "val_frac": val_frac, "seed": seed,
+                            "max_project_frac": max_project_frac})
 
     manifests = {}
     for split_name, split_functions in [("train", train), ("val", val), ("test", test)]:

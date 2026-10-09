@@ -11,6 +11,7 @@ with aegis.dataset.leak_free_split (it exposes the same function_id
 attribute group_aware_split/assert_no_leakage rely on).
 """
 import csv
+import dataclasses
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,6 +33,7 @@ class BigVulFunction:
     commit_id: str
     source_before: str
     source_after: str
+    file_name: str = ""
 
 
 def load_bigvul_csv(csv_path: Path) -> list[BigVulFunction]:
@@ -56,5 +58,29 @@ def load_bigvul_csv(csv_path: Path) -> list[BigVulFunction]:
                 commit_id=row["commit_id"],
                 source_before=row["func_before"],
                 source_after=row["func_after"],
+                file_name=row["file_name"],
             ))
     return functions
+
+
+def regroup_oversized_projects(functions: list[BigVulFunction],
+                               max_project_frac: float = 0.10) -> list[BigVulFunction]:
+    """Projects holding more than max_project_frac of all functions get their
+    split group narrowed from the project to (project, file).
+
+    Why: whole-project groups are what keep the split leak-free, but in
+    BigVul Chrome is 41% and Linux 25% of all functions — neither fits a 15%
+    split, so on the full dataset validation became Linux-only and test got
+    twice the real vulnerable rate. Grouping just those two by source file
+    still keeps every version of a file's functions together (the leakage
+    the split guards against), while letting them spread across splits. A
+    function moved between files across commits could still straddle a
+    split; that residual risk is accepted and documented.
+    """
+    counts: dict[str, int] = {}
+    for fn in functions:
+        counts[fn.function_id] = counts.get(fn.function_id, 0) + 1
+    oversized = {project for project, n in counts.items() if n > max_project_frac * len(functions)}
+    return [dataclasses.replace(fn, function_id=f"{fn.function_id}::{fn.file_name}")
+            if fn.function_id in oversized else fn
+            for fn in functions]
