@@ -87,14 +87,20 @@ def parse_graphml(xml_path: Path):
     return node_label, node_text, node_filename, edges
 
 
-def embed_nodes(tokenizer, model, texts: list[str]) -> torch.Tensor:
-    inputs = tokenizer(
-        texts, return_tensors="pt", truncation=True,
-        max_length=NODE_TEXT_MAX_TOKENS, padding=True,
-    )
-    with torch.no_grad():
-        outputs = model(**inputs)
-    return outputs.last_hidden_state[:, 0, :]  # [CLS] per node, [N, 768]
+def embed_nodes(tokenizer, model, texts: list[str], chunk_size: int = 256) -> torch.Tensor:
+    """[CLS] embedding per node text, [N, 768], always returned on the CPU.
+    Runs in chunks of `chunk_size` texts so very large functions (1,300+
+    nodes in real BigVul data) can't run out of GPU memory, and on whatever
+    device the model is on."""
+    chunks = []
+    for start in range(0, len(texts), chunk_size):
+        inputs = tokenizer(
+            texts[start:start + chunk_size], return_tensors="pt", truncation=True,
+            max_length=NODE_TEXT_MAX_TOKENS, padding=True,
+        ).to(model.device)
+        with torch.no_grad():
+            chunks.append(model(**inputs).last_hidden_state[:, 0, :].cpu())
+    return torch.cat(chunks) if chunks else torch.zeros((0, 768))
 
 
 def build_hetero_data_from_parsed(node_ids: list[str], node_label: dict[str, str], node_text: dict[str, str],

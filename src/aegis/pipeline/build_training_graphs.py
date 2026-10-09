@@ -21,6 +21,7 @@ command construction, file discovery, splitting, saving, and missing-
 function reporting — is fully unit-testable without Joern installed.
 """
 import argparse
+import random
 import shutil
 import subprocess
 from pathlib import Path
@@ -31,6 +32,14 @@ from aegis.dataset.bigvul_loader import BigVulFunction, load_bigvul_csv
 from aegis.embeddings.codebert_embedder import load_model
 from aegis.graphs.multi_method_splitter import split_combined_graphml
 from aegis.pipeline.prepare_graph_inputs import prepare_dataset
+
+
+def sample_functions(functions: list[BigVulFunction], sample_size: int, seed: int = 42) -> list[BigVulFunction]:
+    """A repeatable random subset (same seed -> same functions), for runs
+    smaller than the full dataset. Returns everything if sample_size covers it."""
+    if sample_size >= len(functions):
+        return functions
+    return random.Random(seed).sample(functions, sample_size)
 
 
 def chunk_list(items: list, batch_size: int) -> list[list]:
@@ -175,11 +184,17 @@ def main() -> None:
     parser.add_argument("--train-frac", type=float, default=0.7)
     parser.add_argument("--val-frac", type=float, default=0.15)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--sample-size", type=int, default=None,
+                        help="Use a repeatable random subset of this many functions instead of all of them")
     args = parser.parse_args()
 
     print(f"Loading BigVul functions from {args.bigvul_csv} ...")
     functions = load_bigvul_csv(args.bigvul_csv)
     print(f"Loaded {len(functions)} functions.")
+    if args.sample_size:
+        functions = sample_functions(functions, args.sample_size, seed=args.seed)
+        print(f"Using a sample of {len(functions)} functions "
+              f"({sum(f.label for f in functions)} vulnerable).")
 
     summary = build_training_graphs(
         functions, args.output_dir,

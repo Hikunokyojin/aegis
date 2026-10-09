@@ -19,6 +19,7 @@ from sklearn.metrics import average_precision_score, f1_score
 from torch_geometric.data import HeteroData
 from torch_geometric.loader import DataLoader
 
+from aegis.embeddings.codebert_embedder import default_device
 from aegis.model.hetero_gnn import NODE, AegisHeteroGNN, FocalLoss
 
 
@@ -45,7 +46,9 @@ def _logits(model: AegisHeteroGNN, batch: HeteroData) -> torch.Tensor:
 def evaluate(model: AegisHeteroGNN, examples: list[Data], batch_size: int = 32) -> dict:
     model.eval()
     probs, labels = [], []
+    device = next(model.parameters()).device
     for batch in DataLoader(examples, batch_size=batch_size):
+        batch = batch.to(device)
         logits = _logits(model, batch)
         probs.extend(torch.softmax(logits, dim=1)[:, 1].tolist())
         labels.extend(batch.y.tolist())
@@ -59,7 +62,8 @@ def evaluate(model: AegisHeteroGNN, examples: list[Data], batch_size: int = 32) 
 
 
 def train(train_dir: Path, val_dir: Path | None, run_dir: Path, epochs: int = 20, hidden_dim: int = 256,
-          num_layers: int = 3, lr: float = 1e-3, batch_size: int = 32) -> list[dict]:
+          num_layers: int = 3, lr: float = 1e-3, batch_size: int = 32,
+          device: str | None = None) -> list[dict]:
     """Trains up to `epochs` total epochs and returns the full per-epoch
     history. If run_dir already holds a checkpoint, training resumes from it
     and only the remaining epochs run."""
@@ -70,14 +74,16 @@ def train(train_dir: Path, val_dir: Path | None, run_dir: Path, epochs: int = 20
         raise ValueError(f"No training graphs found in {train_dir}")
 
     config = {"in_dim": train_set[0][NODE].x.shape[1], "hidden_dim": hidden_dim, "num_layers": num_layers}
-    model = AegisHeteroGNN(**config)
+    device = device or default_device()
+    model = AegisHeteroGNN(**config).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    print(f"Training on {device}")
     loss_fn = FocalLoss()
 
     history, best = [], None
     last_path = run_dir / "last.pt"
     if last_path.exists():
-        checkpoint = torch.load(last_path, weights_only=False)
+        checkpoint = torch.load(last_path, weights_only=False, map_location=device)
         model.load_state_dict(checkpoint["model"])
         optimizer.load_state_dict(checkpoint["optimizer"])
         history, best = checkpoint["history"], checkpoint["best_val_pr_auc"]
@@ -87,6 +93,7 @@ def train(train_dir: Path, val_dir: Path | None, run_dir: Path, epochs: int = 20
         model.train()
         total_loss, seen = 0.0, 0
         for batch in DataLoader(train_set, batch_size=batch_size, shuffle=True):
+            batch = batch.to(device)
             optimizer.zero_grad()
             loss = loss_fn(_logits(model, batch), batch.y)
             loss.backward()
