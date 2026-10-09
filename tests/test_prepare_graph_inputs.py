@@ -12,8 +12,11 @@
   language, so Joern parses it with the right grammar and any failure is
   traceable back to a specific dataset row.
 """
+import dataclasses
 import json
 from pathlib import Path
+
+import pytest
 
 from aegis.dataset.bigvul_loader import BigVulFunction
 from aegis.pipeline.prepare_graph_inputs import (
@@ -87,6 +90,46 @@ def test_prepare_dataset_produces_leak_free_splits(tmp_path: Path):
     assert not (train_projects & val_projects)
     assert not (train_projects & test_projects)
     assert not (val_projects & test_projects)
+
+
+def _giant_plus_small_projects() -> list[BigVulFunction]:
+    """A 'giant' project (60% of functions, 12 files) plus 8 small projects,
+    with vulnerable functions spread through both."""
+    functions = []
+    for i in range(60):
+        f = _make_function(i, "giant", i % 5 == 0)
+        functions.append(dataclasses.replace(f, file_name=f"g{i % 12}.cc"))
+    for i in range(40):
+        f = _make_function(60 + i, f"small{i % 8}", i % 5 == 0)
+        functions.append(dataclasses.replace(f, file_name="s.c"))
+    return functions
+
+
+def test_prepare_dataset_splits_an_oversized_project_by_file(tmp_path: Path):
+    manifests = prepare_dataset(_giant_plus_small_projects(), tmp_path)
+
+    splits_with_giant = {split for split, entries in manifests.items()
+                         if any(e["project"] == "giant" for e in entries)}
+    assert len(splits_with_giant) > 1  # no longer forced whole into one split
+    for file_group in {e["group"] for entries in manifests.values() for e in entries}:
+        assert sum(any(e["group"] == file_group for e in entries) for entries in manifests.values()) == 1
+
+
+def test_prepare_dataset_refuses_an_output_dir_made_with_a_different_split(tmp_path: Path):
+    """Reusing an output dir with a different split would leave old graphs
+    in, say, train while the same functions now also land in test — a leak."""
+    functions = _giant_plus_small_projects()
+    prepare_dataset(functions, tmp_path, train_frac=0.7, val_frac=0.15)
+
+    with pytest.raises(ValueError, match="different split"):
+        prepare_dataset(functions, tmp_path, train_frac=0.5, val_frac=0.25)
+
+
+def test_prepare_dataset_accepts_the_same_split_again(tmp_path: Path):
+    functions = _giant_plus_small_projects()
+    prepare_dataset(functions, tmp_path)
+
+    prepare_dataset(functions, tmp_path)  # must not raise
 
 
 def test_prepare_dataset_writes_manifest_json_per_split(tmp_path: Path):

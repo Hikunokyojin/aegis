@@ -13,7 +13,7 @@
 """
 from pathlib import Path
 
-from aegis.dataset.bigvul_loader import load_bigvul_csv, BigVulFunction
+from aegis.dataset.bigvul_loader import load_bigvul_csv, BigVulFunction, regroup_oversized_projects
 from aegis.dataset.leak_free_split import group_aware_split, assert_no_leakage
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "bigvul_sample.csv"
@@ -54,6 +54,39 @@ def test_source_before_and_after_are_preserved():
 
     assert "strcpy" in vulnerable.source_before
     assert "strncpy" in vulnerable.source_after
+
+
+def test_file_name_is_preserved():
+    functions = load_bigvul_csv(FIXTURE_PATH)
+
+    assert {f.commit_id: f.file_name for f in functions}["abc123"] == "test.c"
+
+
+def _fn(sample_id: int, project: str, file_name: str) -> BigVulFunction:
+    return BigVulFunction(sample_id=sample_id, function_id=project, label=0, language="C", cve_id="",
+                          cwe_id="", commit_id="", source_before="", source_after="", file_name=file_name)
+
+
+def test_oversized_projects_are_regrouped_by_file():
+    """Chrome (41% of BigVul) and Linux (25%) can't fit a 15% split as whole
+    projects. Projects above max_project_frac are grouped by (project, file)
+    instead, so every version of a file's functions still stays together."""
+    functions = ([_fn(i, "giant", f"f{i % 3}.cc") for i in range(60)]
+                 + [_fn(60 + i, f"small{i % 4}", "x.c") for i in range(40)])
+
+    regrouped = regroup_oversized_projects(functions, max_project_frac=0.10)
+
+    giant_groups = {f.function_id for f in regrouped if f.function_id.startswith("giant")}
+    assert giant_groups == {"giant::f0.cc", "giant::f1.cc", "giant::f2.cc"}
+    assert {f.function_id for f in regrouped[60:]} == {"small0", "small1", "small2", "small3"}
+
+
+def test_projects_under_the_threshold_stay_whole():
+    functions = [_fn(i, f"p{i % 20}", f"f{i}.c") for i in range(100)]  # each project = 5%
+
+    regrouped = regroup_oversized_projects(functions, max_project_frac=0.10)
+
+    assert [f.function_id for f in regrouped] == [f.function_id for f in functions]
 
 
 def test_unrecognized_language_rows_are_skipped():
