@@ -27,6 +27,7 @@ aegis-build-graph = "aegis.graphs.heterodata_builder:main"
 aegis-build-training-graphs = "aegis.pipeline.build_training_graphs:main"
 aegis-train = "aegis.training.trainer:main"
 aegis-evaluate = "aegis.evaluation.compare:main"
+aegis-scan = "aegis.scanning.scanner:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

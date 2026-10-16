@@ -48,15 +48,20 @@ def best_f1_threshold(labels: list[int], scores: list[float]) -> float:
     return float(thresholds[int(f1.argmax())])
 
 
+def load_trained_model(checkpoint_path: Path, device: str) -> AegisHeteroGNN:
+    """Rebuilds the model saved in a best.pt/last.pt checkpoint, in eval mode."""
+    checkpoint = torch.load(checkpoint_path, weights_only=False, map_location=device)
+    model = AegisHeteroGNN(**checkpoint["config"]).to(device)
+    model.load_state_dict(checkpoint["model"])
+    return model.eval()
+
+
 @torch.no_grad()
 def gnn_scores(checkpoint_path: Path, graphs_dir: Path, device: str | None = None,
                batch_size: int = 32) -> dict[int, float]:
     """{sample_id: probability of "vulnerable"} for every saved graph in graphs_dir."""
     device = device or default_device()
-    checkpoint = torch.load(checkpoint_path, weights_only=False, map_location=device)
-    model = AegisHeteroGNN(**checkpoint["config"]).to(device)
-    model.load_state_dict(checkpoint["model"])
-    model.eval()
+    model = load_trained_model(checkpoint_path, device)
 
     scores = {}
     for batch in DataLoader(load_split(graphs_dir), batch_size=batch_size):
