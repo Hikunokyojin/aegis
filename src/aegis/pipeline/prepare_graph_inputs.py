@@ -15,11 +15,13 @@ from pathlib import Path
 
 from aegis.dataset.bigvul_loader import BigVulFunction, regroup_oversized_projects
 from aegis.dataset.leak_free_split import group_aware_split, assert_no_leakage
+from aegis.parsing.function_extractor import to_standalone
 
 # Always .cpp: BigVul labels real C++ (e.g. Chrome's `Class::Method` code)
 # as "C", and Joern's C frontend emits a single UNKNOWN node for C++ it can't
 # parse. Joern's C++ frontend handles plain C too.
-LANGUAGE_EXTENSIONS = {"C": ".cpp", "CPP": ".cpp", "C++": ".cpp"}
+# Java (Juliet) methods are written as .java, wrapped in a class.
+LANGUAGE_EXTENSIONS = {"C": ".cpp", "CPP": ".cpp", "C++": ".cpp", "JAVA": ".java"}
 
 
 def language_extension(language: str) -> str:
@@ -37,7 +39,8 @@ def write_split_sources(split_name: str, functions: list[BigVulFunction], output
     for fn in functions:
         ext = language_extension(fn.language)
         file_path = split_dir / f"{fn.sample_id}{ext}"
-        file_path.write_text(fn.source_before, encoding="utf-8")
+        source = to_standalone(fn.source_before, "java" if ext == ".java" else "cpp")
+        file_path.write_text(source, encoding="utf-8")
         manifest.append({
             "sample_id": fn.sample_id,
             "source_path": f"{split_name}/{file_path.name}",

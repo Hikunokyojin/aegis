@@ -136,8 +136,8 @@ def build_training_graphs(functions: list[BigVulFunction], output_dir: Path, bat
 
             # BigVul often drops a function's return type (`Ins_IF(...) {`),
             # which plain C accepts as implicit int but C++ rejects. Give
-            # anything that failed as .cpp one more try as .c.
-            failed = [p for p in batch_paths if p.name not in graphs]
+            # anything that failed as .cpp one more try as .c. (Java has no fallback.)
+            failed = [p for p in batch_paths if p.name not in graphs and p.suffix == ".cpp"]
             if failed:
                 retry_dir = output_dir / split / "_c_retry_src"
                 shutil.rmtree(retry_dir, ignore_errors=True)
