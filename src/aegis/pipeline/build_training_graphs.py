@@ -1,4 +1,4 @@
-"""Orchestrates the full BigVul -> training-graph pipeline for a batch run
+"""Orchestrates the full dataset (BigVul or Juliet) -> training-graph pipeline for a batch run
 on Kaggle/Colab: load -> leak-free split -> write per-function source files
 -> batch-parse many functions per Joern invocation -> split the combined
 GraphML output back into per-function graphs -> save each as a .pt file.
@@ -29,9 +29,23 @@ from pathlib import Path
 import torch
 
 from aegis.dataset.bigvul_loader import BigVulFunction, load_bigvul_csv
+from aegis.dataset.juliet_loader import load_juliet
 from aegis.embeddings.codebert_embedder import load_model
 from aegis.graphs.multi_method_splitter import split_combined_graphml
 from aegis.pipeline.prepare_graph_inputs import prepare_dataset
+
+
+DATASETS = ("bigvul", "juliet-java", "juliet-cpp")
+
+
+def load_dataset(dataset: str, path: Path) -> list[BigVulFunction]:
+    """`path` is the BigVul CSV for "bigvul", or an extracted Juliet archive
+    (any folder above its test case files) for "juliet-java"/"juliet-cpp"."""
+    if dataset == "bigvul":
+        return load_bigvul_csv(path)
+    if dataset in ("juliet-java", "juliet-cpp"):
+        return load_juliet(path, dataset.split("-")[1])
+    raise ValueError(f"Unknown dataset {dataset!r}; expected one of {DATASETS}")
 
 
 def sample_functions(functions: list[BigVulFunction], sample_size: int, seed: int = 42) -> list[BigVulFunction]:
@@ -170,15 +184,18 @@ def main() -> None:
 
         !pip install -e .
         !joern-parse --help   # confirm the Joern CLI is on PATH before running
-        !aegis-build-training-graphs --bigvul-csv data/bigvul/MSR_data_cleaned.csv --output-dir data/bigvul/graphs
+        !aegis-build-training-graphs --input data/bigvul/MSR_data_cleaned.csv --output-dir data/bigvul/graphs
+        !aegis-build-training-graphs --dataset juliet-java --input data/juliet-java --output-dir data/juliet-java/graphs
 
     Requires `joern-parse`/`joern-export` to already be installed and on
     PATH (Joern is a separate CLI install — see the project README) and
     network access for the first CodeBERT download.
     """
     parser = argparse.ArgumentParser(
-        description="Batch-build training graphs from BigVul via Joern (Kaggle/Colab).")
-    parser.add_argument("--bigvul-csv", type=Path, required=True, help="Path to the BigVul CSV (e.g. MSR_data_cleaned.csv)")
+        description="Batch-build training graphs from BigVul or Juliet via Joern (Kaggle/Colab).")
+    parser.add_argument("--dataset", choices=DATASETS, default="bigvul")
+    parser.add_argument("--input", "--bigvul-csv", dest="input", type=Path, required=True,
+                        help="BigVul CSV (e.g. MSR_data_cleaned.csv), or an extracted Juliet test suite folder")
     parser.add_argument("--output-dir", type=Path, required=True, help="Directory to write split source files and graphs")
     parser.add_argument("--batch-size", type=int, default=500, help="Functions parsed per Joern invocation")
     parser.add_argument("--train-frac", type=float, default=0.7)
@@ -188,8 +205,8 @@ def main() -> None:
                         help="Use a repeatable random subset of this many functions instead of all of them")
     args = parser.parse_args()
 
-    print(f"Loading BigVul functions from {args.bigvul_csv} ...")
-    functions = load_bigvul_csv(args.bigvul_csv)
+    print(f"Loading {args.dataset} functions from {args.input} ...")
+    functions = load_dataset(args.dataset, args.input)
     print(f"Loaded {len(functions)} functions.")
     if args.sample_size:
         functions = sample_functions(functions, args.sample_size, seed=args.seed)
