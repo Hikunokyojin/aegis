@@ -280,3 +280,18 @@ def test_build_training_graphs_rerun_skips_functions_already_saved(tmp_path: Pat
     assert summary["train"]["already_done"] == 2
     assert summary["train"]["saved"] == 0
     assert summary["train"]["missing"] == 0
+
+
+def test_java_function_that_fails_is_not_retried_as_c(tmp_path: Path):
+    """The .c retry exists for C code BigVul mislabels; Java has no such fallback."""
+    functions = [_make_function(0, "alpha", 1), _make_function(1, "alpha", 0)]
+    for fn in functions:
+        fn.language = "JAVA"
+    calls = []
+
+    summary = build_training_graphs(functions, tmp_path, batch_size=10, train_frac=1.0, val_frac=0.0, seed=1,
+                                    runner=_fake_joern_parsing_only({"0.java"}, calls))
+
+    assert summary["train"]["saved"] == 1
+    assert summary["train"]["missing_ids"] == [1]
+    assert calls.count("joern-parse") == 1

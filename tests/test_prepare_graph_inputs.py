@@ -141,3 +141,16 @@ def test_prepare_dataset_writes_manifest_json_per_split(tmp_path: Path):
     assert manifest_path.exists()
     loaded = json.loads(manifest_path.read_text())
     assert len(loaded) == 4
+
+
+def test_java_functions_are_written_as_java_wrapped_in_a_class(tmp_path: Path):
+    """Juliet Java methods are extracted from their test-case classes; Joern's
+    Java frontend only builds a method that sits inside a type declaration."""
+    fn = _make_function(0, "alpha", 1, "JAVA")
+    fn.source_before = "public void bad() { int x = 1; }"
+
+    manifest = write_split_sources("train", [fn], tmp_path)
+
+    assert manifest[0]["source_path"] == "train/0.java"
+    written = (tmp_path / "train" / "0.java").read_text()
+    assert written.startswith("class ") and "public void bad() { int x = 1; }" in written
