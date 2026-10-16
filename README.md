@@ -29,11 +29,17 @@ patterns it was never explicitly told to look for.
 
 ```
 src/aegis/
-├── parsing/      Source-to-AST parsing
+├── parsing/      Source-to-AST parsing and per-function extraction (C/C++, Java)
 ├── dataflow/     Data-flow / taint-tracking queries
-├── dataset/      Leak-free dataset splitting
-├── embeddings/   Semantic code embeddings
-└── graphs/       Heterogeneous graph construction
+├── dataset/      BigVul and Juliet loaders, leak-free dataset splitting
+├── embeddings/   Semantic code embeddings (CodeBERT)
+├── graphs/       Heterogeneous graph construction from Joern CPGs
+├── pipeline/     Batch dataset -> graph building
+├── model/        Heterogeneous GNN (HGT) and focal loss
+├── training/     Resumable training with PR-AUC / F1 model selection
+├── evaluation/   Semgrep and CodeQL baselines, side-by-side benchmark
+└── scanning/     Scan your own source files with a trained model
+notebooks/        Kaggle notebook: build -> train -> benchmark on a free GPU
 tests/            Pytest suite + fixtures
 ```
 
@@ -43,17 +49,33 @@ tests/            Pytest suite + fixtures
 pip install -e ".[dev]"
 ```
 
-A CPG-generation tool (Joern) must also be installed separately and available
-on your `PATH`; see `src/aegis/dataflow/` for the CPGQL scripts it runs.
+External tools, installed separately and on your `PATH`:
+
+- [Joern](https://github.com/joernio/joern) v4.0.597 (needs Java 21), for code property graphs.
+- [Semgrep](https://semgrep.dev) and the [CodeQL CLI bundle](https://github.com/github/codeql-action/releases),
+  only for the benchmark step.
+
+## Usage
+
+```bash
+# 1. Build one graph per function, split leak-free into train/val/test
+aegis-build-training-graphs --dataset bigvul --input MSR_data_cleaned.csv --output-dir data/bigvul
+aegis-build-training-graphs --dataset juliet-java --input juliet-java/ --output-dir data/juliet-java
+
+# 2. Train (resumable; keeps the best model by validation PR-AUC)
+aegis-train --data-dir data/bigvul --run-dir runs/bigvul --epochs 30
+
+# 3. Benchmark against Semgrep and CodeQL on the same held-out functions
+aegis-evaluate --data-dir data/bigvul --run-dir runs/bigvul
+
+# 4. Rank the functions in your own code by vulnerability risk
+aegis-scan --checkpoint runs/bigvul/best.pt path/to/your/project
+```
+
+`notebooks/kaggle_training_run.ipynb` runs steps 1–4 end to end on a free Kaggle GPU.
 
 ## Running tests
 
 ```bash
 pytest
 ```
-
-## Status
-
-Parsing, data-flow querying, leak-free dataset splitting, semantic
-embeddings, and heterogeneous graph construction are implemented and tested.
-Model training and evaluation are in active development.
