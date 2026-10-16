@@ -295,3 +295,16 @@ def test_java_function_that_fails_is_not_retried_as_c(tmp_path: Path):
     assert summary["train"]["saved"] == 1
     assert summary["train"]["missing_ids"] == [1]
     assert calls.count("joern-parse") == 1
+
+
+def test_load_dataset_dispatches_on_dataset_name(tmp_path: Path):
+    from aegis.pipeline.build_training_graphs import load_dataset
+
+    case = tmp_path / "CWE190_Integer_Overflow__int_max_add_01.java"
+    case.write_text("class C { public void bad() { int x = 1; } private void goodG2B() { int y = 2; } }")
+
+    functions = load_dataset("juliet-java", tmp_path)
+
+    assert [f.label for f in functions] == [1, 0]
+    with pytest.raises(ValueError):
+        load_dataset("nonexistent", tmp_path)
