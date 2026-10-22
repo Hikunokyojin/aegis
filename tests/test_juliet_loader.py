@@ -60,7 +60,7 @@ def test_loads_java_and_c_cases_with_labels_groups_and_cwe(tmp_path):
     _write(tmp_path, "testcases/CWE121/s01/CWE121_Stack_Based_Buffer_Overflow__char_type_overrun_memcpy_01.c", C_CASE)
 
     java = load_juliet(tmp_path, "java")
-    assert [(f.label, f.source_before.split("(")[0].split()[-1]) for f in java] == [(1, "bad"), (0, "goodG2B")]
+    assert [f.label for f in java] == [1, 0]
     assert {f.function_id for f in java} == {"CWE190_Integer_Overflow__int_max_add"}
     assert all(f.language == "JAVA" and f.cwe_id == "CWE-190" for f in java)
 
@@ -68,3 +68,28 @@ def test_loads_java_and_c_cases_with_labels_groups_and_cwe(tmp_path):
     assert [f.label for f in c] == [1, 0]
     assert c[0].cwe_id == "CWE-121" and c[0].language == "C"
     assert [f.sample_id for f in c] == [0, 1]
+
+
+def test_neutralize_hides_label_revealing_names_and_comments():
+    """Juliet names flawed code `bad*` and fixed code `good*`. Left in the
+    source, the model reads the label off the name (a real Kaggle run scored a
+    meaningless PR-AUC of 1.0), so names and comments are neutralized."""
+    from aegis.dataset.juliet_loader import neutralize
+
+    java = ('public void goodG2B() throws Throwable { /* FIX: use a hardcoded string */\n'
+            '    int data = goodG2BSource(); // FLAW\n'
+            '    IO.writeLine("good bad");\n}')
+    out = neutralize(java, "java")
+    assert "good" not in out.replace('"good bad"', "") and "bad" not in out.replace('"good bad"', "")
+    assert "FIX" not in out and "FLAW" not in out
+    assert '"good bad"' in out  # string contents are code behaviour, not labels
+
+    c = "void CWE121_x_01_bad() { badSink(data); }"
+    out_c = neutralize(c, "cpp")
+    assert "bad" not in out_c and "CWE121_x_01_" in out_c
+
+
+def test_loaded_juliet_sources_are_neutralized(tmp_path):
+    _write(tmp_path, "CWE190_Integer_Overflow__int_max_add_01.java", JAVA_CASE)
+    for fn in load_juliet(tmp_path, "java"):
+        assert "bad" not in fn.source_before and "good" not in fn.source_before

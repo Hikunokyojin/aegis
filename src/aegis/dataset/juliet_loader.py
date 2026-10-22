@@ -13,6 +13,13 @@ convention. Labels therefore come from function names:
 - Class-per-variant cases (`..._81_bad.java`, `..._81_goodG2B.cpp`) name the
   variant in the file instead; every function there takes the file's label.
 
+Label leakage: those same `bad`/`good` names, and Juliet's `/* FLAW */` /
+`/* FIX */` comments, sit inside the function source the model reads. Left
+in, the model reads the label off the name (a real run scored a meaningless
+PR-AUC of 1.0), so every identifier containing bad/good is renamed to a
+neutral `fn` form and comments are removed before the source is used.
+String literals are left untouched, since they are program behaviour.
+
 Leak-free grouping: a test case is written in many "flow variants" (`_01` to
 `_22`, multi-file `_51a/_51b`, class-based `_81_bad`) that wrap the same
 flaw in different control/data flow. They are near-duplicates, so they share
@@ -22,13 +29,39 @@ import re
 from pathlib import Path
 
 from aegis.dataset.bigvul_loader import BigVulFunction
-from aegis.parsing.function_extractor import extract_functions
+from aegis.parsing.function_extractor import _PARSERS, extract_functions
 
 _EXTENSIONS = {"java": {".java": "JAVA"}, "cpp": {".c": "C", ".cpp": "CPP"}}
 _VARIANT_SUFFIX = re.compile(r"_\d+([a-z]|_(bad|good\w*|base|helper\w*))?$")
 _FILE_VARIANT = re.compile(r"_\d+_(bad|good\w*)$")
 _BAD = re.compile(r"(^|_)bad")
 _GOOD = re.compile(r"(^|_)good")
+_LABEL_WORD = re.compile(r"(?i)(?:bad|good)(?:G2B|B2G)?\d*")
+_IDENTIFIERS = {"identifier", "field_identifier", "type_identifier"}
+_COMMENTS = {"comment", "line_comment", "block_comment"}
+
+
+def neutralize(source: str, language: str) -> str:
+    """Removes comments and renames identifiers containing bad/good
+    (`goodG2BSource` -> `fnSource`, `CWE121_..._bad` -> `CWE121_..._fn`)."""
+    source_bytes = source.encode("utf-8")
+    edits = []
+    stack = [_PARSERS[language].parse(source_bytes).root_node]
+    while stack:
+        node = stack.pop()
+        if node.type in _COMMENTS:
+            edits.append((node.start_byte, node.end_byte, b""))
+            continue
+        if node.type in _IDENTIFIERS:
+            text = source_bytes[node.start_byte:node.end_byte].decode("utf-8", errors="replace")
+            renamed = _LABEL_WORD.sub("fn", text)
+            if renamed != text:
+                edits.append((node.start_byte, node.end_byte, renamed.encode("utf-8")))
+            continue
+        stack.extend(node.children)
+    for start, end, replacement in sorted(edits, reverse=True):
+        source_bytes = source_bytes[:start] + replacement + source_bytes[end:]
+    return source_bytes.decode("utf-8", errors="replace")
 
 
 def juliet_group(stem: str) -> str:
@@ -75,7 +108,7 @@ def load_juliet(root: Path, language: str) -> list[BigVulFunction]:
                 cve_id="",
                 cwe_id=f"CWE-{cwe.group(1)}" if cwe else "",
                 commit_id="",
-                source_before=fn.source,
+                source_before=neutralize(fn.source, language),
                 source_after="",
                 file_name=str(path.relative_to(root)),
             ))
