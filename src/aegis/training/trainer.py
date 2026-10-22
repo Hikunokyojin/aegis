@@ -43,7 +43,7 @@ def _logits(model: AegisHeteroGNN, batch: HeteroData) -> torch.Tensor:
 
 
 @torch.no_grad()
-def evaluate(model: AegisHeteroGNN, examples: list[Data], batch_size: int = 32) -> dict:
+def evaluate(model: AegisHeteroGNN, examples: list[HeteroData], batch_size: int = 32) -> dict:
     model.eval()
     probs, labels = [], []
     device = next(model.parameters()).device
