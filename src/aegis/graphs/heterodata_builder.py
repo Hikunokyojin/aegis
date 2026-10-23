@@ -87,6 +87,19 @@ def parse_graphml(xml_path: Path):
     return node_label, node_text, node_filename, edges
 
 
+def parse_node_lines(xml_path: Path) -> dict[str, int]:
+    """{node_id: Joern LINE_NUMBER} for every node that has one."""
+    root = ET.parse(xml_path).getroot()
+    line_keys = {key.get("id") for key in root.iter("{http://graphml.graphdrawing.org/xmlns}key")
+                 if key.get("for") == "node" and key.get("attr.name") == "LINE_NUMBER"}
+    lines = {}
+    for node in root.iter("{http://graphml.graphdrawing.org/xmlns}node"):
+        for data in node.findall("g:data", NS):
+            if data.get("key") in line_keys and data.text and data.text.lstrip("-").isdigit():
+                lines[node.get("id")] = int(data.text)
+    return lines
+
+
 def embed_nodes(tokenizer, model, texts: list[str], chunk_size: int = 256) -> torch.Tensor:
     """[CLS] embedding per node text, [N, 768], always returned on the CPU.
     Runs in chunks of `chunk_size` texts so very large functions (1,300+
@@ -105,7 +118,8 @@ def embed_nodes(tokenizer, model, texts: list[str], chunk_size: int = 256) -> to
 
 def build_hetero_data_from_parsed(node_ids: list[str], node_label: dict[str, str], node_text: dict[str, str],
                                    edges: list[tuple[str, str, str]], tokenizer, model,
-                                   type_vocabulary: list[str] | None = None) -> HeteroData:
+                                   type_vocabulary: list[str] | None = None,
+                                   node_line: dict[str, int] | None = None) -> HeteroData:
     """Builds one HeteroData graph restricted to node_ids (a subset of the
     keys of node_label/node_text is fine — e.g. one function's nodes out of
     a larger multi-function parse). Edges are drawn from `edges` and kept
@@ -135,6 +149,8 @@ def build_hetero_data_from_parsed(node_ids: list[str], node_label: dict[str, str
     data["NODE"].x = combined
     data["NODE"].joern_type = [node_label[nid] for nid in node_ids]
     data["NODE"].source_text = [node_text[nid] for nid in node_ids]
+    if node_line is not None:  # source line per node (-1 if unknown), for explaining predictions
+        data["NODE"].line = torch.tensor([node_line.get(nid, -1) for nid in node_ids], dtype=torch.long)
 
     edge_lists = {rel: ([], []) for rel in KEEP_RELATIONS}
     skipped = 0

@@ -27,7 +27,7 @@ from pathlib import Path
 
 from torch_geometric.data import HeteroData
 
-from aegis.graphs.heterodata_builder import parse_graphml, build_hetero_data_from_parsed
+from aegis.graphs.heterodata_builder import parse_graphml, parse_node_lines, build_hetero_data_from_parsed
 
 
 def group_node_ids_by_source_file(node_label: dict[str, str], node_filename: dict[str, str],
@@ -67,9 +67,11 @@ def split_combined_graphml(xml_path: Path, tokenizer, model) -> dict[str, Hetero
     empty graph as if it were real."""
     node_label, node_text, node_filename, edges = parse_graphml(xml_path)
     groups = group_node_ids_by_source_file(node_label, node_filename, edges)
+    node_line = parse_node_lines(xml_path)
 
     return {
-        filename: build_hetero_data_from_parsed(node_ids, node_label, node_text, edges, tokenizer, model)
+        filename: build_hetero_data_from_parsed(node_ids, node_label, node_text, edges, tokenizer, model,
+                                                node_line=node_line)
         for filename, node_ids in groups.items()
         if any(node_label[nid] == "METHOD" and node_text[nid] != "<global>" for nid in node_ids)
     }
