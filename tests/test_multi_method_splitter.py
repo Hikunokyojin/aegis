@@ -173,3 +173,21 @@ def test_split_combined_graphml_graphs_share_a_common_feature_width(two_method_g
     graphs = split_combined_graphml(two_method_graphml_path, tokenizer, model)
 
     assert graphs["0.c"]["NODE"].x.shape[1] == graphs["1.cpp"]["NODE"].x.shape[1]
+
+
+def test_split_graphs_carry_each_nodes_source_line(tmp_path: Path):
+    """The scanner's explanation heat-map maps node importance back to
+    source lines, so every node keeps Joern's LINE_NUMBER (-1 when absent)."""
+    xml = (TWO_METHOD_GRAPHML
+           .replace('<key id="labelE"', '<key id="LINE_NUMBER" for="node" attr.name="LINE_NUMBER" attr.type="int"/>\n  <key id="labelE"')
+           .replace('<data key="FILENAME">0.c</data></node>', '<data key="FILENAME">0.c</data><data key="LINE_NUMBER">1</data></node>')
+           .replace('<data key="CODE">user_input</data></node>', '<data key="CODE">user_input</data><data key="LINE_NUMBER">3</data></node>'))
+    path = tmp_path / "export.xml"
+    path.write_text(xml)
+    tokenizer, model = load_model()
+
+    graph = split_combined_graphml(path, tokenizer, model)["0.c"]
+
+    lines = dict(zip(graph["NODE"].source_text, graph["NODE"].line.tolist()))
+    assert lines == {"copy_input": 1, "user_input": 3}
+    assert split_combined_graphml(path, tokenizer, model)["1.cpp"]["NODE"].line.tolist() == [-1, -1]
