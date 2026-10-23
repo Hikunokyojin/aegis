@@ -38,7 +38,8 @@ src/aegis/
 ├── model/        Heterogeneous GNN (HGT) and focal loss
 ├── training/     Resumable training with PR-AUC / F1 model selection
 ├── evaluation/   Semgrep and CodeQL baselines, side-by-side benchmark
-└── scanning/     Scan your own source files with a trained model
+├── scanning/     Scan your own source files with a trained model
+└── ui/           Web app: paste, upload or link code and inspect the results
 notebooks/        Kaggle notebook: build -> train -> benchmark on a free GPU
 tests/            Pytest suite + fixtures
 ```
@@ -73,6 +74,19 @@ aegis-scan --checkpoint runs/bigvul/best.pt path/to/your/project
 ```
 
 `notebooks/kaggle_training_run.ipynb` runs steps 1–4 end to end on a free Kaggle GPU.
+
+## Web app
+
+```bash
+pip install -e ".[ui]"
+aegis-ui
+```
+
+Opens a local web page where you paste code, upload files or a `.zip`, or give a public GitHub link. Every
+function is ranked by vulnerability probability, the lines that drove each score are highlighted, Semgrep and
+CodeQL findings for the same code are shown alongside, and each function's code graph can be viewed. Trained
+models are read from `~/.aegis/models/` (`bigvul.pt`, `juliet-cpp.pt`, `juliet-java.pt`), or from the folder in
+the `AEGIS_MODELS_DIR` environment variable.
 
 ## Running tests
 
