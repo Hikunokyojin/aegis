@@ -19,6 +19,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest", "pytest-cov"]
+ui = ["streamlit>=1.40"]
 
 [project.scripts]
 aegis-parse = "aegis.parsing.ast_parser:main"
@@ -28,6 +29,7 @@ aegis-build-training-graphs = "aegis.pipeline.build_training_graphs:main"
 aegis-train = "aegis.training.trainer:main"
 aegis-evaluate = "aegis.evaluation.compare:main"
 aegis-scan = "aegis.scanning.scanner:main"
+aegis-ui = "aegis.ui.launcher:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
