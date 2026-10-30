@@ -28,7 +28,7 @@ one group: the file stem with its variant suffix removed.
 import re
 from pathlib import Path
 
-from aegis.dataset.bigvul_loader import BigVulFunction
+from aegis.dataset.bigvul_loader import FunctionRecord
 from aegis.parsing.function_extractor import _PARSERS, extract_functions
 
 _EXTENSIONS = {"java": {".java": "JAVA"}, "cpp": {".c": "C", ".cpp": "CPP"}}
@@ -84,7 +84,7 @@ def label_for_function(name: str, file_stem: str) -> int | None:
     return None
 
 
-def load_juliet(root: Path, language: str) -> list[BigVulFunction]:
+def load_juliet(root: Path, language: str) -> list[FunctionRecord]:
     """Walks every `CWE*` test case file under `root` (an extracted Juliet
     archive; support code such as `testcasesupport/` is skipped because its
     files are not named `CWE*`) and returns one record per labeled function,
@@ -92,7 +92,7 @@ def load_juliet(root: Path, language: str) -> list[BigVulFunction]:
     extensions = _EXTENSIONS[language]
     paths = sorted(p for p in root.rglob("CWE*") if p.is_file() and p.suffix in extensions)
 
-    functions: list[BigVulFunction] = []
+    functions: list[FunctionRecord] = []
     for path in paths:
         source = path.read_text(encoding="utf-8", errors="replace")
         cwe = re.match(r"CWE(\d+)", path.stem)
@@ -100,7 +100,7 @@ def load_juliet(root: Path, language: str) -> list[BigVulFunction]:
             label = label_for_function(fn.name, path.stem)
             if label is None:
                 continue
-            functions.append(BigVulFunction(
+            functions.append(FunctionRecord(
                 sample_id=len(functions),
                 function_id=juliet_group(path.stem),
                 label=label,

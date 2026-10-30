@@ -48,7 +48,8 @@ def test_semgrep_command_uses_every_config_and_json_output(tmp_path):
 
 def test_parse_semgrep_json_counts_distinct_findings_per_file(tmp_path):
     out = tmp_path / "out.json"
-    finding = lambda path, rule, line: {"path": path, "check_id": rule, "start": {"line": line}}
+    def finding(path, rule, line):
+        return {"path": path, "check_id": rule, "start": {"line": line}}
     out.write_text(json.dumps({"results": [
         finding("scan/3.c", "gets", 1), finding("scan/3.c", "gets", 1),  # same rule from two packs
         finding("scan/3.c", "strcpy", 1), finding("7.c", "gets", 4)], "errors": []}))
@@ -66,7 +67,8 @@ def test_codeql_commands_create_without_a_build_then_analyze_to_sarif(tmp_path):
 
 
 def test_parse_sarif_counts_results_per_file(tmp_path):
-    loc = lambda uri: {"locations": [{"physicalLocation": {"artifactLocation": {"uri": uri}}}]}
+    def loc(uri):
+        return {"locations": [{"physicalLocation": {"artifactLocation": {"uri": uri}}}]}
     sarif = tmp_path / "r.sarif"
     sarif.write_text(json.dumps({"runs": [{"results": [loc("3.cpp"), loc("3.cpp"), loc("sub/7.cpp")]}]}))
 

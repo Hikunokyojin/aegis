@@ -13,8 +13,8 @@
 """
 from pathlib import Path
 
-from aegis.dataset.bigvul_loader import load_bigvul_csv, BigVulFunction, regroup_oversized_projects
-from aegis.dataset.leak_free_split import group_aware_split, assert_no_leakage
+from aegis.dataset.bigvul_loader import FunctionRecord, load_bigvul_csv, regroup_oversized_projects
+from aegis.dataset.leak_free_split import assert_no_leakage, group_aware_split
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "bigvul_sample.csv"
 
@@ -23,7 +23,7 @@ def test_loads_expected_number_of_functions():
     functions = load_bigvul_csv(FIXTURE_PATH)
 
     assert len(functions) == 4
-    assert all(isinstance(f, BigVulFunction) for f in functions)
+    assert all(isinstance(f, FunctionRecord) for f in functions)
 
 
 def test_vul_column_is_parsed_as_integer_label():
@@ -62,8 +62,8 @@ def test_file_name_is_preserved():
     assert {f.commit_id: f.file_name for f in functions}["abc123"] == "test.c"
 
 
-def _fn(sample_id: int, project: str, file_name: str) -> BigVulFunction:
-    return BigVulFunction(sample_id=sample_id, function_id=project, label=0, language="C", cve_id="",
+def _fn(sample_id: int, project: str, file_name: str) -> FunctionRecord:
+    return FunctionRecord(sample_id=sample_id, function_id=project, label=0, language="C", cve_id="",
                           cwe_id="", commit_id="", source_before="", source_after="", file_name=file_name)
 
 
@@ -100,7 +100,7 @@ def test_unrecognized_language_rows_are_skipped():
 
 
 def test_loaded_functions_are_compatible_with_the_leak_free_splitter():
-    """Integration check: BigVulFunction must be usable directly wherever
+    """Integration check: FunctionRecord must be usable directly wherever
     the splitter expects objects with .function_id, without a conversion
     step."""
     functions = load_bigvul_csv(FIXTURE_PATH)

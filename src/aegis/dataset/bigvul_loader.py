@@ -5,8 +5,8 @@ Grouping note: per the project's master spec, leak-free splitting must group
 at the project/commit level, never the individual function level, since
 near-duplicate functions from the same project are the actual leakage vector
 (a function's pre-fix and post-fix revisions both appearing in the dataset).
-BigVulFunction.function_id is therefore set to the source project name, not
-a per-function identifier, and BigVulFunction is structurally compatible
+FunctionRecord.function_id is therefore set to the source project name, not
+a per-function identifier, and FunctionRecord is structurally compatible
 with aegis.dataset.leak_free_split (it exposes the same function_id
 attribute group_aware_split/assert_no_leakage rely on).
 """
@@ -23,7 +23,7 @@ SUPPORTED_LANGUAGES = {"C", "CPP", "C++"}
 
 
 @dataclass
-class BigVulFunction:
+class FunctionRecord:
     sample_id: int
     function_id: str  # source project name (leak-free split group key)
     label: int         # 1 = vulnerable, 0 = safe
@@ -36,8 +36,8 @@ class BigVulFunction:
     file_name: str = ""
 
 
-def load_bigvul_csv(csv_path: Path) -> list[BigVulFunction]:
-    """Reads a BigVul-format CSV and returns one BigVulFunction per row.
+def load_bigvul_csv(csv_path: Path) -> list[FunctionRecord]:
+    """Reads a BigVul-format CSV and returns one FunctionRecord per row.
     Rows with an unrecognized `lang` value are silently skipped, since
     BigVul is documented as C/C++-only and any other value indicates a
     malformed or unexpected row rather than data we can parse."""
@@ -48,7 +48,7 @@ def load_bigvul_csv(csv_path: Path) -> list[BigVulFunction]:
             language = row["lang"]
             if language not in SUPPORTED_LANGUAGES:
                 continue
-            functions.append(BigVulFunction(
+            functions.append(FunctionRecord(
                 sample_id=sample_id,
                 function_id=row["project"],
                 label=int(row["vul"]),
@@ -63,8 +63,8 @@ def load_bigvul_csv(csv_path: Path) -> list[BigVulFunction]:
     return functions
 
 
-def regroup_oversized_projects(functions: list[BigVulFunction],
-                               max_project_frac: float = 0.10) -> list[BigVulFunction]:
+def regroup_oversized_projects(functions: list[FunctionRecord],
+                               max_project_frac: float = 0.10) -> list[FunctionRecord]:
     """Projects holding more than max_project_frac of all functions get their
     split group narrowed from the project to (project, file).
 

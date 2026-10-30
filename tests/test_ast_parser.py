@@ -2,7 +2,7 @@
 known-good C++ and Java fixtures."""
 from pathlib import Path
 
-from aegis.parsing.ast_parser import CPP_LANGUAGE, JAVA_LANGUAGE, parse_file, _make_parser
+from aegis.parsing.ast_parser import CPP_LANGUAGE, JAVA_LANGUAGE, _make_parser, parse_file
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 

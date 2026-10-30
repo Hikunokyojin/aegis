@@ -4,7 +4,7 @@ Joern's GraphML export (see aegis.graphs.heterodata_builder) only works on
 a whole CPG at once, not on an individual method within a larger CPG — so
 the correct unit of work for per-function graphs is one function per source
 file, each becoming its own small CPG. This module leak-free-splits a list
-of BigVulFunction records and writes each one to its own file, organized
+of FunctionRecord records and writes each one to its own file, organized
 into train/val/test directories, with a manifest.json per split linking
 each written file back to its label and metadata for the batch CPG step
 and later training.
@@ -13,8 +13,8 @@ import hashlib
 import json
 from pathlib import Path
 
-from aegis.dataset.bigvul_loader import BigVulFunction, regroup_oversized_projects
-from aegis.dataset.leak_free_split import group_aware_split, assert_no_leakage
+from aegis.dataset.bigvul_loader import FunctionRecord, regroup_oversized_projects
+from aegis.dataset.leak_free_split import assert_no_leakage, group_aware_split
 from aegis.parsing.function_extractor import to_standalone
 
 # Always .cpp: BigVul labels real C++ (e.g. Chrome's `Class::Method` code)
@@ -28,7 +28,7 @@ def language_extension(language: str) -> str:
     return LANGUAGE_EXTENSIONS[language]
 
 
-def write_split_sources(split_name: str, functions: list[BigVulFunction], output_dir: Path) -> list[dict]:
+def write_split_sources(split_name: str, functions: list[FunctionRecord], output_dir: Path) -> list[dict]:
     """Writes each function's pre-fix source to its own file under
     output_dir/split_name/{sample_id}{ext}. Returns a manifest (list of
     dicts) describing every written file."""
@@ -55,7 +55,7 @@ def write_split_sources(split_name: str, functions: list[BigVulFunction], output
     return manifest
 
 
-def _check_or_record_split(output_dir: Path, splits: dict[str, list[BigVulFunction]], settings: dict) -> None:
+def _check_or_record_split(output_dir: Path, splits: dict[str, list[FunctionRecord]], settings: dict) -> None:
     """Records which sample went to which split in output_dir/split.json, and
     refuses an output_dir that was built with a different split. Re-runs skip
     graphs that already exist, so reusing a directory with a changed split
@@ -77,7 +77,7 @@ def _check_or_record_split(output_dir: Path, splits: dict[str, list[BigVulFuncti
                                        "counts": {name: len(ids) for name, ids in assignment.items()}}, indent=2))
 
 
-def prepare_dataset(functions: list[BigVulFunction], output_dir: Path,
+def prepare_dataset(functions: list[FunctionRecord], output_dir: Path,
                      train_frac: float = 0.7, val_frac: float = 0.15,
                      seed: int = 42, max_project_frac: float = 0.10) -> dict[str, list[dict]]:
     """Leak-free splits functions (grouped by project, or by project+file for

@@ -27,7 +27,7 @@ from pathlib import Path
 
 from torch_geometric.data import HeteroData
 
-from aegis.graphs.heterodata_builder import parse_graphml, parse_node_lines, build_hetero_data_from_parsed
+from aegis.graphs.heterodata_builder import build_hetero_data_from_parsed, parse_graphml, parse_node_lines
 
 
 def group_node_ids_by_source_file(node_label: dict[str, str], node_filename: dict[str, str],

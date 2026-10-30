@@ -3,11 +3,10 @@ GraphML export (avoids requiring a live Joern install in CI)."""
 from pathlib import Path
 
 import pytest
-
 import torch
 
-from aegis.graphs.heterodata_builder import build_graph, build_hetero_data_from_parsed, embed_nodes, JOERN_NODE_TYPES
 from aegis.embeddings.codebert_embedder import load_model
+from aegis.graphs.heterodata_builder import JOERN_NODE_TYPES, build_graph, build_hetero_data_from_parsed, embed_nodes
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 

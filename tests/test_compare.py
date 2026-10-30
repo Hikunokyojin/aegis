@@ -6,7 +6,6 @@
 - As someone choosing the model's yes/no cutoff, I want it picked on the
   validation split (never on test), so the test F1 isn't tuned to the test set.
 """
-import json
 from pathlib import Path
 
 import pytest

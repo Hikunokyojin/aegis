@@ -17,7 +17,7 @@ from pathlib import Path
 import torch
 from torch_geometric.data import HeteroData
 
-from aegis.training.trainer import load_split, evaluate, train
+from aegis.training.trainer import evaluate, load_split, train
 
 WIDTH = 8
 

@@ -27,7 +27,8 @@ from aegis.model.hetero_gnn import NODE
 from aegis.parsing.function_extractor import extract_functions, to_standalone
 from aegis.pipeline.build_training_graphs import parse_function_files
 
-SOURCE_LANGUAGES = {".c": "cpp", ".cc": "cpp", ".cpp": "cpp", ".cxx": "cpp", ".h": "cpp", ".hpp": "cpp", ".java": "java"}
+SOURCE_LANGUAGES = {".c": "cpp", ".cc": "cpp", ".cpp": "cpp", ".cxx": "cpp", ".h": "cpp", ".hpp": "cpp",
+                    ".java": "java"}
 STAGED_EXTENSION = {"cpp": ".cpp", "java": ".java"}
 MAX_ARCHIVE_BYTES = 50 * 1024 * 1024
 MAX_ARCHIVE_FILES = 5000
@@ -247,7 +248,8 @@ def run_semgrep(files: list[Path], work_dir: Path, runner=subprocess.run) -> lis
             original = staged.get(Path(r["path"]).name)
             if original is not None:
                 findings.append({"tool": "semgrep", "file": str(original), "line": r["start"]["line"],
-                                 "rule": r["check_id"].split(".")[-1], "message": r.get("extra", {}).get("message", "")})
+                                 "rule": r["check_id"].split(".")[-1],
+                                 "message": r.get("extra", {}).get("message", "")})
     return findings
 
 
@@ -261,7 +263,8 @@ def run_codeql(files: list[Path], work_dir: Path, runner=subprocess.run) -> list
         scan_dir = work_dir / f"codeql_{language}"
         staged = _stage_for_tool(group, scan_dir, None)
         sarif = work_dir / f"codeql_{language}.sarif"
-        for cmd in codeql_commands(work_dir / f"codeql_db_{language}", scan_dir, sarif, language, CODEQL_SUITES[language]):
+        db_dir = work_dir / f"codeql_db_{language}"
+        for cmd in codeql_commands(db_dir, scan_dir, sarif, language, CODEQL_SUITES[language]):
             runner(cmd, check=True)
         for run_ in json.loads(sarif.read_text())["runs"]:
             for r in run_.get("results", []):

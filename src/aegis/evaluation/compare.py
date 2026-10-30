@@ -17,7 +17,7 @@ import json
 from pathlib import Path
 
 import torch
-from sklearn.metrics import average_precision_score, precision_recall_curve, precision_score, recall_score, f1_score
+from sklearn.metrics import average_precision_score, f1_score, precision_recall_curve, precision_score, recall_score
 from torch_geometric.loader import DataLoader
 
 from aegis.embeddings.codebert_embedder import default_device
@@ -89,7 +89,8 @@ def compare_tools(labels: dict[int, int], scores: dict[str, dict[int, float]],
 
 
 def render_markdown(results: dict, title: str) -> str:
-    fmt = lambda v: "n/a" if v is None else f"{v:.3f}"
+    def fmt(v):
+        return "n/a" if v is None else f"{v:.3f}"
     rows = [f"## {title}", "",
             f"{results['n_common']} functions scored by every tool "
             f"({next(iter(results['tools'].values()))['positives'] if results['tools'] else 0} vulnerable). "

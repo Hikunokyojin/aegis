@@ -10,10 +10,10 @@ import json
 from pathlib import Path
 
 import torch
+from test_build_training_graphs import _fake_joern_parsing_only
 
 from aegis.model.hetero_gnn import AegisHeteroGNN
 from aegis.scanning.scanner import collect_source_files, scan
-from test_build_training_graphs import _fake_joern_parsing_only
 
 
 def _checkpoint(path: Path) -> Path:

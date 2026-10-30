@@ -54,7 +54,8 @@ def group_aware_split(samples: list[Sample], train_frac: float = 0.7, val_frac: 
     n, pos = [0, 0, 0], [0, 0, 0]
 
     for gid in group_ids:
-        size_fill = lambda i: n[i] / (fracs[i] * total_n)
+        def size_fill(i):
+            return n[i] / (fracs[i] * total_n)
         if positives[gid] > 0:
             target = min(usable, key=lambda i: (pos[i] / (fracs[i] * total_pos), size_fill(i)))
         else:

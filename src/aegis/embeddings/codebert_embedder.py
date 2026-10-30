@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 import torch
-from transformers import AutoTokenizer, AutoModel
+from transformers import AutoModel, AutoTokenizer
 
 MODEL_NAME = "microsoft/codebert-base"
 

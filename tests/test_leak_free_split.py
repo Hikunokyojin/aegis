@@ -3,10 +3,10 @@ deliberately leaked data (positive + negative test, per project convention)."""
 import pytest
 
 from aegis.dataset.leak_free_split import (
-    Sample,
     LeakageError,
-    group_aware_split,
+    Sample,
     assert_no_leakage,
+    group_aware_split,
 )
 
 

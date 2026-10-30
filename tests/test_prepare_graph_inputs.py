@@ -18,16 +18,16 @@ from pathlib import Path
 
 import pytest
 
-from aegis.dataset.bigvul_loader import BigVulFunction
+from aegis.dataset.bigvul_loader import FunctionRecord
 from aegis.pipeline.prepare_graph_inputs import (
     language_extension,
-    write_split_sources,
     prepare_dataset,
+    write_split_sources,
 )
 
 
-def _make_function(sample_id: int, project: str, label: int, language: str = "C") -> BigVulFunction:
-    return BigVulFunction(
+def _make_function(sample_id: int, project: str, label: int, language: str = "C") -> FunctionRecord:
+    return FunctionRecord(
         sample_id=sample_id,
         function_id=project,
         label=label,
@@ -92,7 +92,7 @@ def test_prepare_dataset_produces_leak_free_splits(tmp_path: Path):
     assert not (val_projects & test_projects)
 
 
-def _giant_plus_small_projects() -> list[BigVulFunction]:
+def _giant_plus_small_projects() -> list[FunctionRecord]:
     """A 'giant' project (60% of functions, 12 files) plus 8 small projects,
     with vulnerable functions spread through both."""
     functions = []

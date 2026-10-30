@@ -12,22 +12,21 @@
   BigVul functions are often non-self-contained snippets that can
   legitimately fail to parse.
 """
-import json
 from pathlib import Path
 
 import pytest
 import torch
 
-from aegis.dataset.bigvul_loader import BigVulFunction
+from aegis.dataset.bigvul_loader import FunctionRecord
 from aegis.embeddings.codebert_embedder import load_model
 from aegis.pipeline.build_training_graphs import (
+    build_training_graphs,
     chunk_list,
-    joern_parse_command,
     joern_export_command,
+    joern_parse_command,
     run_joern_batch,
     sample_functions,
     save_graphs,
-    build_training_graphs,
 )
 
 
@@ -149,8 +148,8 @@ def test_save_graphs_writes_pt_files_and_reports_missing(tmp_path: Path):
     assert not (tmp_path / "1.pt").exists()
 
 
-def _make_function(sample_id: int, project: str, label: int) -> BigVulFunction:
-    return BigVulFunction(
+def _make_function(sample_id: int, project: str, label: int) -> FunctionRecord:
+    return FunctionRecord(
         sample_id=sample_id, function_id=project, label=label, language="C",
         cve_id=f"CVE-TEST-{sample_id}", cwe_id="CWE-120", commit_id=f"c{sample_id}",
         source_before=f"void f{sample_id}() {{ }}", source_after=f"void f{sample_id}() {{ }}",

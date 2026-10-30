@@ -16,8 +16,16 @@ from pathlib import Path
 import streamlit as st
 
 from aegis.ui.analysis import (
-    analyze, attach_findings, detect_language, download_github_repo, graph_to_dot,
-    run_codeql, run_semgrep, safe_extract_zip, write_pasted_code, SOURCE_LANGUAGES,
+    SOURCE_LANGUAGES,
+    analyze,
+    attach_findings,
+    detect_language,
+    download_github_repo,
+    graph_to_dot,
+    run_codeql,
+    run_semgrep,
+    safe_extract_zip,
+    write_pasted_code,
 )
 
 MODELS_DIR = Path(os.environ.get("AEGIS_MODELS_DIR", Path.home() / ".aegis" / "models"))
@@ -114,7 +122,8 @@ elif mode == "Upload files":
                                type=["c", "cc", "cpp", "cxx", "h", "hpp", "java", "zip"])
 else:
     github_url = st.text_input("Public GitHub repository", placeholder="https://github.com/owner/repository")
-    st.caption("The default branch is downloaded (max 50 MB) and its C/C++/Java files are scanned. Large repositories take long.")
+    st.caption("The default branch is downloaded (max 50 MB) and its C/C++/Java files are scanned. "
+               "Large repositories take long.")
 
 if st.button("Scan", type="primary"):
     work = Path(tempfile.gettempdir()) / "aegis_ui"
@@ -135,7 +144,8 @@ if st.button("Scan", type="primary"):
                 findings += run_codeql(files, work / "tools")
             unmatched = attach_findings(result["functions"], findings)
             st.session_state["result"] = {**result, "unmatched": unmatched, "root": str(work / "input"),
-                                          "tools": [t for t, on in (("Semgrep", use_semgrep), ("CodeQL", use_codeql)) if on]}
+                                          "tools": [t for t, on in (("Semgrep", use_semgrep), ("CodeQL", use_codeql))
+                                                    if on]}
             status.update(label="Scan complete", state="complete")
     except Exception as exc:  # shown to the user rather than crashing the page
         st.error(f"Scan failed: {exc}")
@@ -144,7 +154,8 @@ if st.button("Scan", type="primary"):
 result = st.session_state.get("result")
 if result:
     fns, root = result["functions"], result["root"]
-    rel = lambda p: os.path.relpath(p, root)
+    def rel(p):
+        return os.path.relpath(p, root)
     flagged = [f for f in fns if f["probability"] >= threshold]
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Functions scored", len(fns))
@@ -162,7 +173,8 @@ if result:
                "how much each line pushed that probability up; S/C in the margin mark Semgrep/CodeQL findings.")
 
     for i, f in enumerate(fns):
-        label = f"{'⚠️ ' if f['probability'] >= threshold else ''}{f['function']} — {f['probability']:.3f} — {rel(f['file'])}:{f['start_line']}"
+        flag = "⚠️ " if f["probability"] >= threshold else ""
+        label = f"{flag}{f['function']} — {f['probability']:.3f} — {rel(f['file'])}:{f['start_line']}"
         with st.expander(label, expanded=i == 0):
             st.markdown(heat_html(f["source"], f["start_line"], f["line_scores"], f.get("findings", [])),
                         unsafe_allow_html=True)

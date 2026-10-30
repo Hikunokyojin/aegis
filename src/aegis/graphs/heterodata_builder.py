@@ -7,13 +7,12 @@ node-type x relation combinatorial explosion) -> attach per-node features as
 (768 dims)].
 """
 import argparse
-import sys
-from pathlib import Path
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 import torch
 from torch_geometric.data import HeteroData
-from transformers import AutoTokenizer, AutoModel
+from transformers import AutoModel, AutoTokenizer
 
 NS = {"g": "http://graphml.graphdrawing.org/xmlns"}
 # Stable, ordered relation list (not a set) so the model's edge-type metadata

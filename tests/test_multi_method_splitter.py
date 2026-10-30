@@ -18,9 +18,9 @@ from pathlib import Path
 
 import pytest
 
+from aegis.embeddings.codebert_embedder import load_model
 from aegis.graphs.heterodata_builder import parse_graphml
 from aegis.graphs.multi_method_splitter import group_node_ids_by_source_file, split_combined_graphml
-from aegis.embeddings.codebert_embedder import load_model
 
 # Two independent functions, each with a METHOD root (carrying FILENAME) and
 # one IDENTIFIER child connected by AST+CFG, plus one edge that deliberately

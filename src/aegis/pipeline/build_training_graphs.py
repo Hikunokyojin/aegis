@@ -28,17 +28,16 @@ from pathlib import Path
 
 import torch
 
-from aegis.dataset.bigvul_loader import BigVulFunction, load_bigvul_csv
+from aegis.dataset.bigvul_loader import FunctionRecord, load_bigvul_csv
 from aegis.dataset.juliet_loader import load_juliet
 from aegis.embeddings.codebert_embedder import load_model
 from aegis.graphs.multi_method_splitter import split_combined_graphml
 from aegis.pipeline.prepare_graph_inputs import prepare_dataset
 
-
 DATASETS = ("bigvul", "juliet-java", "juliet-cpp")
 
 
-def load_dataset(dataset: str, path: Path) -> list[BigVulFunction]:
+def load_dataset(dataset: str, path: Path) -> list[FunctionRecord]:
     """`path` is the BigVul CSV for "bigvul", or an extracted Juliet archive
     (any folder above its test case files) for "juliet-java"/"juliet-cpp"."""
     if dataset == "bigvul":
@@ -48,7 +47,7 @@ def load_dataset(dataset: str, path: Path) -> list[BigVulFunction]:
     raise ValueError(f"Unknown dataset {dataset!r}; expected one of {DATASETS}")
 
 
-def sample_functions(functions: list[BigVulFunction], sample_size: int, seed: int = 42) -> list[BigVulFunction]:
+def sample_functions(functions: list[FunctionRecord], sample_size: int, seed: int = 42) -> list[FunctionRecord]:
     """A repeatable random subset (same seed -> same functions), for runs
     smaller than the full dataset. Returns everything if sample_size covers it."""
     if sample_size >= len(functions):
@@ -127,7 +126,8 @@ def parse_function_files(paths: list[Path], workspace_dir: Path, tokenizer, mode
     return graphs
 
 
-def save_graphs(graphs_by_filename: dict, manifest_entries: list[dict], output_dir: Path) -> tuple[list[int], list[int]]:
+def save_graphs(graphs_by_filename: dict, manifest_entries: list[dict],
+                output_dir: Path) -> tuple[list[int], list[int]]:
     """Saves each manifest entry's graph (looked up by its source file's
     basename) as {output_dir}/{sample_id}.pt containing {graph, label,
     sample_id}. Returns (saved_sample_ids, missing_sample_ids) — a function
@@ -149,7 +149,7 @@ def save_graphs(graphs_by_filename: dict, manifest_entries: list[dict], output_d
     return saved, missing
 
 
-def build_training_graphs(functions: list[BigVulFunction], output_dir: Path, batch_size: int = 500,
+def build_training_graphs(functions: list[FunctionRecord], output_dir: Path, batch_size: int = 500,
                            train_frac: float = 0.7, val_frac: float = 0.15, seed: int = 42,
                            runner=subprocess.run) -> dict[str, dict]:
     """Runs the full pipeline and returns a per-split summary:
@@ -201,7 +201,8 @@ def main() -> None:
     parser.add_argument("--dataset", choices=DATASETS, default="bigvul")
     parser.add_argument("--input", "--bigvul-csv", dest="input", type=Path, required=True,
                         help="BigVul CSV (e.g. MSR_data_cleaned.csv), or an extracted Juliet test suite folder")
-    parser.add_argument("--output-dir", type=Path, required=True, help="Directory to write split source files and graphs")
+    parser.add_argument("--output-dir", type=Path, required=True,
+                        help="Directory to write split source files and graphs")
     parser.add_argument("--batch-size", type=int, default=500, help="Functions parsed per Joern invocation")
     parser.add_argument("--train-frac", type=float, default=0.7)
     parser.add_argument("--val-frac", type=float, default=0.15)
