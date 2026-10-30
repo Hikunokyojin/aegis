@@ -1,21 +1,23 @@
-# Generated artifacts — reproducible via src/aegis/, not source
+# Generated data, trained models and scan workspaces
 data/
+runs/
 workspace/
+.aegis_scan/
+*.pt
 
 # Python
 __pycache__/
-*.pyc
+*.py[cod]
 *.egg-info/
 .pytest_cache/
+.ruff_cache/
 .coverage
 htmlcov/
 .venv/
 build/
 dist/
 
-# OS
+# Editors and OS
+.vscode/
+.idea/
 .DS_Store
-
-# Local-only project context and documentation (never pushed)
-docs/
-CLAUDE.md
