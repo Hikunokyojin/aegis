@@ -6,13 +6,11 @@ node-type x relation combinatorial explosion) -> attach per-node features as
 [one-hot Joern type + CodeBERT embedding of the node's own CODE/NAME text
 (768 dims)].
 """
-import argparse
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import torch
 from torch_geometric.data import HeteroData
-from transformers import AutoModel, AutoTokenizer
 
 NS = {"g": "http://graphml.graphdrawing.org/xmlns"}
 # Stable, ordered relation list (not a set) so the model's edge-type metadata
@@ -176,31 +174,3 @@ def build_graph(xml_path: Path, tokenizer, model) -> HeteroData:
     node_label, node_text, _node_filename, edges = parse_graphml(xml_path)
     node_ids = list(node_label.keys())
     return build_hetero_data_from_parsed(node_ids, node_label, node_text, edges, tokenizer, model)
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Build a HeteroData graph from a Joern GraphML export.")
-    parser.add_argument("graphml_path", type=Path, help="Path to the Joern GraphML export (.xml)")
-    args = parser.parse_args()
-
-    if not args.graphml_path.exists():
-        print(f"File not found: {args.graphml_path}")
-        raise SystemExit(1)
-
-    print(f"Loading {MODEL_NAME} ...")
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-    model = AutoModel.from_pretrained(MODEL_NAME)
-    model.eval()
-
-    print(f"Building graph from: {args.graphml_path}")
-    data = build_graph(args.graphml_path, tokenizer, model)
-
-    print(f"\n{data}")
-    print(f"\nNode feature matrix: {tuple(data['NODE'].x.shape)}")
-    for etype in data.edge_types:
-        print(f"  {etype[1]:15s} {data[etype].edge_index.shape[1]} edges")
-    print("\nPASS: graph built and validated")
-
-
-if __name__ == "__main__":
-    main()

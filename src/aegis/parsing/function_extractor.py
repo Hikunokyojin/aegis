@@ -9,9 +9,12 @@ structurally and tolerates even when the file has syntax errors.
 """
 from dataclasses import dataclass
 
-from tree_sitter import Parser
+import tree_sitter_cpp as tscpp
+import tree_sitter_java as tsjava
+from tree_sitter import Language, Parser
 
-from aegis.parsing.ast_parser import CPP_LANGUAGE, JAVA_LANGUAGE
+CPP_LANGUAGE = Language(tscpp.language())
+JAVA_LANGUAGE = Language(tsjava.language())
 
 _PARSERS = {"cpp": Parser(CPP_LANGUAGE), "java": Parser(JAVA_LANGUAGE)}
 _FUNCTION_NODES = {"cpp": {"function_definition"},

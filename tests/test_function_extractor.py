@@ -51,3 +51,16 @@ def test_cpp_standalone_source_is_unchanged():
 def test_unsupported_language_is_rejected():
     with pytest.raises(ValueError):
         extract_functions("x", "python")
+
+
+def test_known_good_fixtures_parse_without_syntax_errors():
+    from pathlib import Path
+
+    from tree_sitter import Parser
+
+    from aegis.parsing.function_extractor import CPP_LANGUAGE, JAVA_LANGUAGE
+    fixtures = Path(__file__).parent / "fixtures"
+    for language, path in ((CPP_LANGUAGE, fixtures / "cpp" / "vuln_strcpy.cpp"),
+                           (JAVA_LANGUAGE, fixtures / "java" / "VulnSqlInjection.java")):
+        root = Parser(language).parse(path.read_bytes()).root_node
+        assert not root.has_error and root.child_count > 0

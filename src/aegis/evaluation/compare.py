@@ -23,7 +23,7 @@ from torch_geometric.loader import DataLoader
 from aegis.embeddings.codebert_embedder import default_device
 from aegis.evaluation.baselines import TOOLS, run_baseline
 from aegis.model.hetero_gnn import NODE, AegisHeteroGNN
-from aegis.training.trainer import load_split
+from aegis.training.trainer import load_split, sha256_of
 
 BASELINE_THRESHOLD = 1  # one or more findings = "vulnerable"
 
@@ -48,9 +48,22 @@ def best_f1_threshold(labels: list[int], scores: list[float]) -> float:
     return float(thresholds[int(f1.argmax())])
 
 
+class ModelIntegrityError(ValueError):
+    """A model file does not match its published SHA-256 checksum."""
+
+
 def load_trained_model(checkpoint_path: Path, device: str) -> AegisHeteroGNN:
-    """Rebuilds the model saved in a best.pt/last.pt checkpoint, in eval mode."""
-    checkpoint = torch.load(checkpoint_path, weights_only=False, map_location=device)
+    """Rebuilds the model saved in a best.pt/last.pt checkpoint, in eval mode.
+
+    Loading is restricted to tensors and plain values (weights_only=True), so
+    a tampered model file cannot run code. If `<model>.sha256` sits next to
+    the file, the file must match it or ModelIntegrityError is raised."""
+    checksum_file = checkpoint_path.with_name(checkpoint_path.name + ".sha256")
+    if checksum_file.exists():
+        expected = checksum_file.read_text().split()[0].lower()
+        if sha256_of(checkpoint_path) != expected:
+            raise ModelIntegrityError(f"{checkpoint_path} does not match {checksum_file.name}; refusing to load it.")
+    checkpoint = torch.load(checkpoint_path, weights_only=True, map_location=device)
     model = AegisHeteroGNN(**checkpoint["config"]).to(device)
     model.load_state_dict(checkpoint["model"])
     return model.eval()

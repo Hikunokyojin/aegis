@@ -12,6 +12,7 @@ would reward always predicting "safe". PR-AUC is reported as None when a
 split contains only one class, since it is undefined there.
 """
 import argparse
+import hashlib
 from pathlib import Path
 
 import torch
@@ -21,6 +22,15 @@ from torch_geometric.loader import DataLoader
 
 from aegis.embeddings.codebert_embedder import default_device
 from aegis.model.hetero_gnn import NODE, AegisHeteroGNN, FocalLoss
+
+
+def sha256_of(path: Path) -> str:
+    """Hex SHA-256 of a file, read in 1 MB blocks."""
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def load_split(graphs_dir: Path | None) -> list[HeteroData]:
@@ -83,7 +93,7 @@ def train(train_dir: Path, val_dir: Path | None, run_dir: Path, epochs: int = 20
     history, best = [], None
     last_path = run_dir / "last.pt"
     if last_path.exists():
-        checkpoint = torch.load(last_path, weights_only=False, map_location=device)
+        checkpoint = torch.load(last_path, weights_only=True, map_location=device)
         model.load_state_dict(checkpoint["model"])
         optimizer.load_state_dict(checkpoint["optimizer"])
         history, best = checkpoint["history"], checkpoint["best_val_pr_auc"]
@@ -109,6 +119,7 @@ def train(train_dir: Path, val_dir: Path | None, run_dir: Path, epochs: int = 20
                 best = metrics["pr_auc"]
                 torch.save({"model": model.state_dict(), "config": config, "epoch": epoch,
                             "val_pr_auc": best}, run_dir / "best.pt")
+                (run_dir / "best.pt.sha256").write_text(f"{sha256_of(run_dir / 'best.pt')}  best.pt\n")
         history.append(record)
         torch.save({"model": model.state_dict(), "optimizer": optimizer.state_dict(), "config": config,
                     "history": history, "best_val_pr_auc": best}, last_path)

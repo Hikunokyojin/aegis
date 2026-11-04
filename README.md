@@ -28,7 +28,8 @@ transformer** learns which relational patterns signal a vulnerability, including
 - **Leak-free by construction.** Data is split by project, file or test case so near-duplicate code never lands in both training and test data. A test proves deliberately leaked splits are rejected, and Juliet's label-revealing names are neutralised.
 - **Benchmarked fairly.** Aegis, [Semgrep](https://semgrep.dev) and [CodeQL](https://codeql.github.com) are scored on exactly the same held-out functions with PR-AUC and F1.
 - **Explainable.** Each prediction is traced back to the source lines that drove it (gradient × input attribution).
-- **Usable.** A web app scans pasted code, uploaded projects or GitHub repositories. A CLI scans files and folders.
+- **Usable.** A web app scans pasted code, uploaded projects or GitHub repositories. A CLI scans files and folders; both share one scoring engine.
+- **Safe to host.** Uploaded code is deleted after each scan; scans are size-, time- and rate-limited; model files load without executing code and are checked against SHA-256 checksums; dependencies are audited in CI.
 - **Free to reproduce.** The full pipeline runs on a free Kaggle GPU, resumes after interruptions, and is covered by 100+ tests.
 
 ## How it works
@@ -52,7 +53,7 @@ flowchart LR
 | Model | `aegis.model` | `AegisHeteroGNN`: 3 HGTConv layers, residual + LayerNorm, mean pooling; focal loss |
 | Train | `aegis.training` | Resumable training; best checkpoint by validation PR-AUC |
 | Evaluate | `aegis.evaluation` | Semgrep and CodeQL on the same functions; PR-AUC, F1, precision, recall |
-| Use | `aegis.scanning`, `aegis.ui` | Command-line scanner and web app |
+| Use | `aegis.scanning`, `aegis.ui` | One scoring engine behind the command-line scanner and the web app |
 
 ## Results
 
@@ -88,7 +89,7 @@ pytest -q
 aegis-ui        # opens http://localhost:8501
 ```
 
-Paste code, upload files or a `.zip`, or give a public GitHub link. Every function is ranked by risk, with the lines behind each score highlighted, Semgrep/CodeQL findings alongside, and an interactive view of the function's graph. Trained models are read from `~/.aegis/models/` (`bigvul.pt`, `juliet-cpp.pt`, `juliet-java.pt`) or from `$AEGIS_MODELS_DIR`.
+Paste code, upload files or a `.zip`, or give a public GitHub link. Every function is ranked by risk, with the lines behind each score highlighted, Semgrep findings alongside, and an interactive view of the function's graph. Trained models are read from `~/.aegis/models/` (`bigvul.pt`, `juliet-cpp.pt`, `juliet-java.pt`) or from `$AEGIS_MODELS_DIR`.
 
 <p align="center">
   <img src="assets/web-app-ranking.jpg" alt="Functions ranked by risk" width="49%">
@@ -122,7 +123,6 @@ aegis-scan --checkpoint runs/juliet-java/best.pt path/to/project
 ```
 src/aegis/
 ├── parsing/      grammar-based parsing and function extraction (C/C++, Java)
-├── dataflow/     Joern CPGQL taint-flow queries
 ├── dataset/      BigVul and Juliet loaders, leak-free splitting
 ├── embeddings/   CodeBERT node embeddings
 ├── graphs/       Joern GraphML → PyTorch Geometric HeteroData

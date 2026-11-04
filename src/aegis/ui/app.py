@@ -3,26 +3,30 @@ local address in a browser.
 
 Paste code, upload files or a .zip, or give a GitHub link; Aegis splits the
 code into functions, scores each one with the trained model for its language,
-highlights the lines that drove each score, optionally runs Semgrep and
-CodeQL on the same code for comparison, and draws a function's code graph.
+highlights the lines that drove each score, optionally runs Semgrep on the
+same code for comparison, and draws a function's code graph. Uploaded code
+lives in a private temporary folder that is deleted as soon as the scan ends.
 All analysis logic lives in aegis.ui.analysis; this file only draws it.
 """
 import html
 import os
 import shutil
+import subprocess
 import tempfile
+import uuid
+from functools import partial
 from pathlib import Path
 
 import streamlit as st
 
 from aegis.ui.analysis import (
     SOURCE_LANGUAGES,
+    ScanGate,
     analyze,
     attach_findings,
     detect_language,
     download_github_repo,
     graph_to_dot,
-    run_codeql,
     run_semgrep,
     safe_extract_zip,
     write_pasted_code,
@@ -31,6 +35,10 @@ from aegis.ui.analysis import (
 MODELS_DIR = Path(os.environ.get("AEGIS_MODELS_DIR", Path.home() / ".aegis" / "models"))
 CPP_MODELS = {"BigVul (real-world C/C++)": "bigvul.pt", "Juliet C/C++ (synthetic test suite)": "juliet-cpp.pt"}
 JAVA_MODEL = "juliet-java.pt"
+# Limits that keep one visitor from exhausting a shared free server.
+MAX_FUNCTIONS = int(os.environ.get("AEGIS_MAX_FUNCTIONS", 200))
+TOOL_TIMEOUT_SECONDS = int(os.environ.get("AEGIS_TOOL_TIMEOUT", 300))
+COOLDOWN_SECONDS = float(os.environ.get("AEGIS_COOLDOWN", 30))
 EXAMPLE_C = """#include <string.h>
 #include <stdio.h>
 
@@ -46,6 +54,15 @@ int add(int a, int b) {
 """
 
 st.set_page_config(page_title="Aegis — vulnerability scanner", page_icon="🛡️", layout="wide")
+
+
+@st.cache_resource
+def scan_gate() -> ScanGate:
+    """One gate shared by every visitor of this server."""
+    return ScanGate(COOLDOWN_SECONDS)
+
+
+visitor = st.session_state.setdefault("visitor", uuid.uuid4().hex)
 
 
 def heat_html(source: str, start_line: int, line_scores: dict[int, float], findings: list[dict]) -> str:
@@ -103,7 +120,6 @@ with st.sidebar:
     explain = st.checkbox("Explain scores (highlight lines)", value=True)
     use_semgrep = st.checkbox("Compare with Semgrep", value=shutil.which("semgrep") is not None,
                               disabled=shutil.which("semgrep") is None)
-    use_codeql = st.checkbox("Compare with CodeQL (slow)", value=False, disabled=shutil.which("codeql") is None)
     if shutil.which("joern-parse") is None:
         st.error("Joern is not on PATH; scans will fail. See the run guide.")
 
@@ -111,6 +127,9 @@ with st.sidebar:
 st.title("🛡️ Aegis")
 st.write("Finds functions likely to contain security vulnerabilities in **C/C++** and **Java**, using a graph neural "
          "network trained on code property graphs (syntax, control flow and data flow).")
+st.caption(f"🔒 Privacy: your code is processed only to produce this report, in a temporary folder deleted when "
+           f"the scan ends. Nothing is stored or shared. Limits: {MAX_FUNCTIONS} functions per scan, one scan "
+           f"at a time, {COOLDOWN_SECONDS:.0f} s between your scans.")
 
 mode = st.radio("Input", ["Paste code", "Upload files", "GitHub link"], horizontal=True)
 pasted, language, uploads, github_url = "", "Auto-detect", None, ""
@@ -126,29 +145,31 @@ else:
                "Large repositories take long.")
 
 if st.button("Scan", type="primary"):
-    work = Path(tempfile.gettempdir()) / "aegis_ui"
+    work = Path(tempfile.mkdtemp(prefix="aegis_"))
+    runner = partial(subprocess.run, timeout=TOOL_TIMEOUT_SECONDS)
     try:
-        with st.status("Scanning…", expanded=True) as status:
+        with scan_gate().slot(visitor), st.status("Scanning… (waits for a free slot if busy)", expanded=True) as status:
             st.write("Collecting source files")
             files = collect_files(work, mode, pasted, language, uploads, github_url)
             if not files:
                 raise ValueError("No C/C++/Java source files found in the input.")
             st.write(f"{len(files)} file(s). Building code graphs with Joern and scoring functions…")
-            result = analyze(files, model_paths, work / "analysis", explain=explain)
+            result = analyze(files, model_paths, work / "analysis", explain=explain, runner=runner,
+                             max_functions=MAX_FUNCTIONS)
             findings = []
             if use_semgrep:
                 st.write("Running Semgrep…")
-                findings += run_semgrep(files, work / "tools")
-            if use_codeql:
-                st.write("Running CodeQL…")
-                findings += run_codeql(files, work / "tools")
+                findings += run_semgrep(files, work / "tools", runner=runner)
             unmatched = attach_findings(result["functions"], findings)
             st.session_state["result"] = {**result, "unmatched": unmatched, "root": str(work / "input"),
-                                          "tools": [t for t, on in (("Semgrep", use_semgrep), ("CodeQL", use_codeql))
-                                                    if on]}
+                                          "tools": ["Semgrep"] if use_semgrep else []}
             status.update(label="Scan complete", state="complete")
+    except subprocess.TimeoutExpired:
+        st.error(f"Scan stopped: a tool ran longer than {TOOL_TIMEOUT_SECONDS} s. Try a smaller input.")
     except Exception as exc:  # shown to the user rather than crashing the page
         st.error(f"Scan failed: {exc}")
+    finally:
+        shutil.rmtree(work, ignore_errors=True)  # the user's code is never kept
 
 # ---------------------------------------------------------------- results
 result = st.session_state.get("result")
@@ -166,11 +187,10 @@ if result:
     st.subheader("Functions ranked by risk")
     st.dataframe([{"Risk": round(f["probability"], 3), "Flag": "⚠️" if f["probability"] >= threshold else "",
                    "Function": f["function"], "Location": f"{rel(f['file'])}:{f['start_line']}",
-                   "Semgrep": sum(x["tool"] == "semgrep" for x in f.get("findings", [])),
-                   "CodeQL": sum(x["tool"] == "codeql" for x in f.get("findings", []))} for f in fns],
+                   "Semgrep": sum(x["tool"] == "semgrep" for x in f.get("findings", []))} for f in fns],
                  use_container_width=True, hide_index=True)
     st.caption("Risk is the model's probability that the function is vulnerable. In the code views, red shading shows "
-               "how much each line pushed that probability up; S/C in the margin mark Semgrep/CodeQL findings.")
+               "how much each line pushed that probability up; S in the margin marks Semgrep findings.")
 
     for i, f in enumerate(fns):
         flag = "⚠️ " if f["probability"] >= threshold else ""

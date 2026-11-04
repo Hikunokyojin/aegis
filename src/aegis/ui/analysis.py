@@ -1,6 +1,6 @@
 """Everything the Aegis web UI does, except drawing it: turning pasted code,
 uploads and GitHub links into source files, scoring every function, explaining
-each score line by line, running Semgrep/CodeQL on the same code, and drawing
+each score line by line, running Semgrep on the same code, and drawing
 a function's code graph. Kept free of Streamlit so it can be tested directly.
 
 Inputs come from users and the internet, so archives are extracted
@@ -8,31 +8,58 @@ defensively: only C/C++/Java source files are written, every path must stay
 inside the work folder (no `../` escapes), links are skipped, and both the
 download and the unpacked size are capped.
 """
+import contextlib
 import json
 import re
 import shutil
 import stat
 import subprocess
+import threading
+import time
 import urllib.request
 import zipfile
 from pathlib import Path
 from urllib.parse import urlparse
 
-import torch
-
-from aegis.embeddings.codebert_embedder import default_device, load_model
-from aegis.evaluation.baselines import CODEQL_SUITES, SEMGREP_CONFIGS, codeql_commands, semgrep_commands
-from aegis.evaluation.compare import load_trained_model
+from aegis.evaluation.baselines import SEMGREP_CONFIGS, semgrep_commands
+from aegis.languages import SOURCE_LANGUAGES
 from aegis.model.hetero_gnn import NODE
-from aegis.parsing.function_extractor import extract_functions, to_standalone
-from aegis.pipeline.build_training_graphs import parse_function_files
+from aegis.parsing.function_extractor import to_standalone
+from aegis.scanning.scanner import analyze, explain_lines  # noqa: F401  (re-exported for the web app)
 
-SOURCE_LANGUAGES = {".c": "cpp", ".cc": "cpp", ".cpp": "cpp", ".cxx": "cpp", ".h": "cpp", ".hpp": "cpp",
-                    ".java": "java"}
-STAGED_EXTENSION = {"cpp": ".cpp", "java": ".java"}
 MAX_ARCHIVE_BYTES = 50 * 1024 * 1024
 MAX_ARCHIVE_FILES = 5000
 EDGE_COLOURS = {"AST": "#9e9e9e", "CFG": "#1f77b4", "REACHING_DEF": "#d62728"}
+
+
+class ScanGate:
+    """Protects a shared server: scans run one at a time (others wait their
+    turn instead of exhausting memory), and each visitor must wait
+    `cooldown_seconds` between scans. `clock` is injectable for tests."""
+
+    def __init__(self, cooldown_seconds: float = 30.0, clock=time.monotonic):
+        self.cooldown, self.clock = cooldown_seconds, clock
+        self._lock = threading.Lock()
+        self._last: dict[str, float] = {}
+
+    def wait_time(self, visitor: str) -> float:
+        """Seconds `visitor` must still wait before scanning again (0 = may scan now)."""
+        last = self._last.get(visitor)
+        return 0.0 if last is None else max(0.0, self.cooldown - (self.clock() - last))
+
+    @contextlib.contextmanager
+    def slot(self, visitor: str):
+        """Holds the single scan slot; raises RateLimitedError if `visitor` scanned too recently."""
+        wait = self.wait_time(visitor)
+        if wait > 0:
+            raise RateLimitedError(f"Please wait {wait:.0f} s before scanning again.")
+        self._last[visitor] = self.clock()
+        with self._lock:
+            yield
+
+
+class RateLimitedError(RuntimeError):
+    """A visitor asked for another scan before their cooldown ended."""
 
 
 class UnsafeArchiveError(ValueError):
@@ -135,88 +162,7 @@ def download_github_repo(url: str, dest: Path, max_bytes: int = MAX_ARCHIVE_BYTE
         archive.unlink(missing_ok=True)
 
 
-# ---------------------------------------------------------------- scoring and explanation
-
-def explain_lines(model, graph, line_offset: int = 0) -> dict[int, float]:
-    """How much each source line pushed the 'vulnerable' probability up,
-    scaled to 0..1 (1 = most influential line). Uses gradient x input on the
-    node features, summed per node and taken as the maximum per line; nodes
-    with no known line are ignored. line_offset maps lines in the analysed
-    function file back to the user's file."""
-    x = graph[NODE].x.detach().clone().requires_grad_(True)
-    batch = torch.zeros(x.shape[0], dtype=torch.long, device=x.device)
-    model.zero_grad()
-    prob = torch.softmax(model(x, graph.edge_index_dict, batch), dim=1)[0, 1]
-    prob.backward()
-    importance = (x.grad * x).abs().sum(dim=1).tolist()
-
-    per_line: dict[int, float] = {}
-    for line, score in zip(graph[NODE].line.tolist(), importance):
-        if line > 0:
-            per_line[line + line_offset] = max(per_line.get(line + line_offset, 0.0), score)
-    top = max(per_line.values(), default=0.0)
-    return {line: (score / top if top > 0 else 0.0) for line, score in per_line.items()}
-
-
-def analyze(files: list[Path], model_paths: dict[str, Path], work_dir: Path, device: str | None = None,
-            runner=subprocess.run, explain: bool = True) -> dict:
-    """Scores every function in `files` with the model for its language.
-
-    Returns {"functions": [...], "unparsed": [...]}. Each function has file,
-    function, language, start_line, end_line, source, probability,
-    line_scores ({line: 0..1}) and graph (for the graph view), and is sorted
-    most-likely-vulnerable first. Functions that could not be turned into a
-    graph, or whose language has no model, are listed in "unparsed" with a reason."""
-    device = device or default_device()
-    shutil.rmtree(work_dir, ignore_errors=True)
-
-    staged: dict[str, dict[str, dict]] = {"cpp": {}, "java": {}}
-    unparsed = []
-    for file in files:
-        language = SOURCE_LANGUAGES.get(file.suffix.lower())
-        if language is None:
-            continue
-        for fn in extract_functions(file.read_text(encoding="utf-8", errors="replace"), language):
-            info = {"file": str(file), "function": fn.name, "language": language, "start_line": fn.start_line,
-                    "end_line": fn.start_line + fn.source.count("\n"), "source": fn.source}
-            if language not in model_paths:
-                unparsed.append({**info, "reason": f"no trained model for {language}"})
-                continue
-            name = f"{len(staged[language])}{STAGED_EXTENSION[language]}"
-            src_dir = work_dir / f"src_{language}"
-            src_dir.mkdir(parents=True, exist_ok=True)
-            (src_dir / name).write_text(to_standalone(fn.source, language), encoding="utf-8")
-            staged[language][name] = info
-
-    functions = []
-    if any(staged.values()):
-        tokenizer, codebert = load_model(device)
-    for language, infos in staged.items():
-        if not infos:
-            continue
-        model = load_trained_model(model_paths[language], device)
-        paths = [work_dir / f"src_{language}" / name for name in infos]
-        graphs = parse_function_files(paths, work_dir / f"joern_{language}", tokenizer, codebert, runner)
-        # A Java method sits one line below the wrapper class line in its analysed file.
-        wrapper_lines = 1 if language == "java" else 0
-        for name, info in infos.items():
-            graph = graphs.get(name)
-            if graph is None:
-                unparsed.append({**info, "reason": "Joern could not build a graph for this function"})
-                continue
-            graph = graph.to(device)
-            batch = torch.zeros(graph[NODE].x.shape[0], dtype=torch.long, device=device)
-            with torch.no_grad():
-                prob = float(torch.softmax(model(graph[NODE].x, graph.edge_index_dict, batch), dim=1)[0, 1])
-            offset = info["start_line"] - 1 - wrapper_lines
-            line_scores = explain_lines(model, graph, offset) if explain and hasattr(graph[NODE], "line") else {}
-            functions.append({**info, "probability": prob, "line_scores": line_scores, "graph": graph.cpu()})
-
-    functions.sort(key=lambda f: f["probability"], reverse=True)
-    return {"functions": functions, "unparsed": unparsed}
-
-
-# ---------------------------------------------------------------- Semgrep / CodeQL on the same code
+# ---------------------------------------------------------------- Semgrep on the same code
 
 def _stage_for_tool(files: list[Path], scan_dir: Path, cpp_extension: str | None) -> dict[str, Path]:
     shutil.rmtree(scan_dir, ignore_errors=True)
@@ -250,30 +196,6 @@ def run_semgrep(files: list[Path], work_dir: Path, runner=subprocess.run) -> lis
                 findings.append({"tool": "semgrep", "file": str(original), "line": r["start"]["line"],
                                  "rule": r["check_id"].split(".")[-1],
                                  "message": r.get("extra", {}).get("message", "")})
-    return findings
-
-
-def run_codeql(files: list[Path], work_dir: Path, runner=subprocess.run) -> list[dict]:
-    """CodeQL (security-extended queries, no build) findings for `files`."""
-    findings = []
-    for language in ("cpp", "java"):
-        group = [f for f in files if SOURCE_LANGUAGES.get(f.suffix.lower()) == language]
-        if not group:
-            continue
-        scan_dir = work_dir / f"codeql_{language}"
-        staged = _stage_for_tool(group, scan_dir, None)
-        sarif = work_dir / f"codeql_{language}.sarif"
-        db_dir = work_dir / f"codeql_db_{language}"
-        for cmd in codeql_commands(db_dir, scan_dir, sarif, language, CODEQL_SUITES[language]):
-            runner(cmd, check=True)
-        for run_ in json.loads(sarif.read_text())["runs"]:
-            for r in run_.get("results", []):
-                loc = r["locations"][0]["physicalLocation"]
-                original = staged.get(Path(loc["artifactLocation"]["uri"]).name)
-                if original is not None:
-                    findings.append({"tool": "codeql", "file": str(original),
-                                     "line": loc.get("region", {}).get("startLine", 0),
-                                     "rule": r.get("ruleId", ""), "message": r.get("message", {}).get("text", "")})
     return findings
 
 

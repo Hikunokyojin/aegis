@@ -1,0 +1,6 @@
+[server]
+# Largest upload a visitor may send, in MB.
+maxUploadSize = 50
+
+[browser]
+gatherUsageStats = false
