@@ -19,10 +19,18 @@ import torch
 
 from aegis.embeddings.codebert_embedder import default_device, load_model
 from aegis.evaluation.compare import load_trained_model
+from aegis.evaluation.studies import apply_temperature
 from aegis.languages import STAGED_EXTENSION, collect_source_files, language_of
 from aegis.model.hetero_gnn import NODE
 from aegis.parsing.function_extractor import extract_functions, to_standalone
 from aegis.pipeline.build_training_graphs import parse_function_files
+
+
+def load_calibration(model_path: Path) -> dict | None:
+    """The temperature, threshold and abstention margin that `aegis-study
+    calibrate` saved next to a model, or None if it has not been calibrated."""
+    path = model_path.with_name(model_path.name + ".calibration.json")
+    return json.loads(path.read_text()) if path.exists() else None
 
 
 class ScanTooLargeError(ValueError):
@@ -93,6 +101,7 @@ def analyze(files: list[Path], model_paths: dict[str, Path], work_dir: Path, dev
         if not infos:
             continue
         model = load_trained_model(model_paths[language], device)
+        calibration = load_calibration(model_paths[language])
         paths = [work_dir / f"src_{language}" / name for name in infos]
         graphs = parse_function_files(paths, work_dir / f"joern_{language}", tokenizer, codebert, runner)
         # A Java method sits one line below the wrapper class line in its analysed file.
@@ -106,9 +115,14 @@ def analyze(files: list[Path], model_paths: dict[str, Path], work_dir: Path, dev
             batch = torch.zeros(graph[NODE].x.shape[0], dtype=torch.long, device=device)
             with torch.no_grad():
                 prob = float(torch.softmax(model(graph[NODE].x, graph.edge_index_dict, batch), dim=1)[0, 1])
+            uncertain = False
+            if calibration:
+                prob = apply_temperature([prob], calibration["temperature"])[0]
+                uncertain = abs(prob - calibration["threshold"]) < calibration["abstain_margin"]
             offset = info["start_line"] - 1 - wrapper_lines
             line_scores = explain_lines(model, graph, offset) if explain and hasattr(graph[NODE], "line") else {}
-            functions.append({**info, "probability": prob, "line_scores": line_scores, "graph": graph.cpu()})
+            functions.append({**info, "probability": prob, "uncertain": uncertain, "line_scores": line_scores,
+                              "graph": graph.cpu()})
 
     functions.sort(key=lambda f: f["probability"], reverse=True)
     return {"functions": functions, "unparsed": unparsed}

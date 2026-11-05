@@ -127,7 +127,7 @@ def parse_function_files(paths: list[Path], workspace_dir: Path, tokenizer, mode
 
 
 def save_graphs(graphs_by_filename: dict, manifest_entries: list[dict],
-                output_dir: Path) -> tuple[list[int], list[int]]:
+                output_dir: Path, compact: bool = False) -> tuple[list[int], list[int]]:
     """Saves each manifest entry's graph (looked up by its source file's
     basename) as {output_dir}/{sample_id}.pt containing {graph, label,
     sample_id}. Returns (saved_sample_ids, missing_sample_ids) — a function
@@ -141,6 +141,8 @@ def save_graphs(graphs_by_filename: dict, manifest_entries: list[dict],
         if graph is None:
             missing.append(entry["sample_id"])
             continue
+        if compact:  # half-precision features: half the disk, needed for full datasets on free storage
+            graph["NODE"].x = graph["NODE"].x.half()
         torch.save(
             {"graph": graph, "label": entry["label"], "sample_id": entry["sample_id"]},
             output_dir / f"{entry['sample_id']}.pt",
@@ -151,10 +153,12 @@ def save_graphs(graphs_by_filename: dict, manifest_entries: list[dict],
 
 def build_training_graphs(functions: list[FunctionRecord], output_dir: Path, batch_size: int = 500,
                            train_frac: float = 0.7, val_frac: float = 0.15, seed: int = 42,
-                           runner=subprocess.run) -> dict[str, dict]:
+                           runner=subprocess.run, split_mode: str = "group",
+                           compact: bool = False) -> dict[str, dict]:
     """Runs the full pipeline and returns a per-split summary:
     {split: {"saved": N, "missing": N, "missing_ids": [...]}}."""
-    manifests = prepare_dataset(functions, output_dir, train_frac=train_frac, val_frac=val_frac, seed=seed)
+    manifests = prepare_dataset(functions, output_dir, train_frac=train_frac, val_frac=val_frac, seed=seed,
+                                split_mode=split_mode)
     tokenizer, model = load_model()
 
     summary = {}
@@ -172,7 +176,7 @@ def build_training_graphs(functions: list[FunctionRecord], output_dir: Path, bat
 
             graphs = parse_function_files(batch_paths, workspace_dir, tokenizer, model, runner)
 
-            saved, missing = save_graphs(graphs, batch, graphs_dir)
+            saved, missing = save_graphs(graphs, batch, graphs_dir, compact=compact)
             saved_total.extend(saved)
             missing_total.extend(missing)
             shutil.rmtree(workspace_dir, ignore_errors=True)
@@ -209,6 +213,10 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--sample-size", type=int, default=None,
                         help="Use a repeatable random subset of this many functions instead of all of them")
+    parser.add_argument("--split-mode", choices=("group", "time"), default="group",
+                        help="group: leak-free by project/file; time: train on older CVEs, test on newer (BigVul)")
+    parser.add_argument("--compact", action="store_true",
+                        help="Store node features in half precision (for full-dataset builds)")
     args = parser.parse_args()
 
     print(f"Loading {args.dataset} functions from {args.input} ...")
@@ -222,6 +230,7 @@ def main() -> None:
     summary = build_training_graphs(
         functions, args.output_dir,
         batch_size=args.batch_size, train_frac=args.train_frac, val_frac=args.val_frac, seed=args.seed,
+        split_mode=args.split_mode, compact=args.compact,
     )
 
     total_saved = sum(s["saved"] for s in summary.values())

@@ -185,15 +185,17 @@ if result:
     c4.metric("Not analysed", len(result["unparsed"]))
 
     st.subheader("Functions ranked by risk")
-    st.dataframe([{"Risk": round(f["probability"], 3), "Flag": "⚠️" if f["probability"] >= threshold else "",
+    st.dataframe([{"Risk": round(f["probability"], 3),
+                   "Flag": "❔ uncertain" if f.get("uncertain") else ("⚠️" if f["probability"] >= threshold else ""),
                    "Function": f["function"], "Location": f"{rel(f['file'])}:{f['start_line']}",
                    "Semgrep": sum(x["tool"] == "semgrep" for x in f.get("findings", []))} for f in fns],
                  use_container_width=True, hide_index=True)
-    st.caption("Risk is the model's probability that the function is vulnerable. In the code views, red shading shows "
+    st.caption("Risk is the model's probability that the function is vulnerable. ❔ means the calibrated model "
+               "is too unsure to call it either way. In the code views, red shading shows "
                "how much each line pushed that probability up; S in the margin marks Semgrep findings.")
 
     for i, f in enumerate(fns):
-        flag = "⚠️ " if f["probability"] >= threshold else ""
+        flag = "❔ " if f.get("uncertain") else ("⚠️ " if f["probability"] >= threshold else "")
         label = f"{flag}{f['function']} — {f['probability']:.3f} — {rel(f['file'])}:{f['start_line']}"
         with st.expander(label, expanded=i == 0):
             st.markdown(heat_html(f["source"], f["start_line"], f["line_scores"], f.get("findings", [])),

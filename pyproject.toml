@@ -36,6 +36,7 @@ ui = ["streamlit>=1.40"]
 aegis-build-training-graphs = "aegis.pipeline.build_training_graphs:main"
 aegis-train = "aegis.training.trainer:main"
 aegis-evaluate = "aegis.evaluation.compare:main"
+aegis-study = "aegis.evaluation.studies:main"
 aegis-scan = "aegis.scanning.scanner:main"
 aegis-ui = "aegis.ui.launcher:main"
 

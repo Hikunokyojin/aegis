@@ -13,6 +13,8 @@ split contains only one class, since it is undefined there.
 """
 import argparse
 import hashlib
+import json
+from collections.abc import Sequence
 from pathlib import Path
 
 import torch
@@ -31,6 +33,33 @@ def sha256_of(path: Path) -> str:
         for block in iter(lambda: f.read(1 << 20), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+class GraphFolder(Sequence):
+    """The saved graphs of one split, read from disk only when needed, so a
+    full dataset trains without holding every graph in memory."""
+
+    def __init__(self, graphs_dir: Path | None, exclude: set[int] = frozenset()):
+        found = graphs_dir is not None and graphs_dir.exists()
+        paths = sorted(graphs_dir.glob("*.pt"), key=lambda p: int(p.stem)) if found else []
+        self.paths = [p for p in paths if int(p.stem) not in exclude]
+
+    def __len__(self) -> int:
+        return len(self.paths)
+
+    def __getitem__(self, i):
+        if isinstance(i, slice):
+            return [self[j] for j in range(*i.indices(len(self)))]
+        return _load_graph(self.paths[i])
+
+
+def _load_graph(path: Path) -> HeteroData:
+    record = torch.load(path, weights_only=False)
+    graph = record["graph"]
+    graph[NODE].x = graph[NODE].x.float()  # compact builds store half precision
+    graph.y = torch.tensor([record["label"]])
+    graph.sample_id = record["sample_id"]
+    return graph
 
 
 def load_split(graphs_dir: Path | None) -> list[HeteroData]:
@@ -73,13 +102,16 @@ def evaluate(model: AegisHeteroGNN, examples: list[HeteroData], batch_size: int 
 
 def train(train_dir: Path, val_dir: Path | None, run_dir: Path, epochs: int = 20, hidden_dim: int = 256,
           num_layers: int = 3, lr: float = 1e-3, batch_size: int = 32,
-          device: str | None = None) -> list[dict]:
+          device: str | None = None, seed: int | None = None,
+          exclude_ids: set[int] = frozenset()) -> list[dict]:
     """Trains up to `epochs` total epochs and returns the full per-epoch
     history. If run_dir already holds a checkpoint, training resumes from it
     and only the remaining epochs run."""
     run_dir.mkdir(parents=True, exist_ok=True)
-    train_set = load_split(train_dir)
-    val_set = load_split(val_dir)
+    if seed is not None:  # repeatable weights and batch order, so seeds can be compared
+        torch.manual_seed(seed)
+    train_set = GraphFolder(train_dir, exclude=set(exclude_ids))
+    val_set = GraphFolder(val_dir)
     if not train_set:
         raise ValueError(f"No training graphs found in {train_dir}")
 
@@ -138,11 +170,15 @@ def main() -> None:
     parser.add_argument("--num-layers", type=int, default=3)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--seed", type=int, default=None, help="Fix the random seed (for multi-seed studies)")
+    parser.add_argument("--exclude-ids", type=Path, default=None,
+                        help="JSON list of training ids to leave out (noisy_ids.json from aegis-study noise)")
     args = parser.parse_args()
+    exclude = set(json.loads(args.exclude_ids.read_text())) if args.exclude_ids else set()
 
     history = train(args.data_dir / "train" / "graphs", args.data_dir / "val" / "graphs", args.run_dir,
                     epochs=args.epochs, hidden_dim=args.hidden_dim, num_layers=args.num_layers,
-                    lr=args.lr, batch_size=args.batch_size)
+                    lr=args.lr, batch_size=args.batch_size, seed=args.seed, exclude_ids=exclude)
     scored = [h for h in history if h.get("val_pr_auc") is not None]
     if scored:
         best = max(scored, key=lambda h: h["val_pr_auc"])

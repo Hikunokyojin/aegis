@@ -11,11 +11,44 @@ and later training.
 """
 import hashlib
 import json
+import re
 from pathlib import Path
 
 from aegis.dataset.bigvul_loader import FunctionRecord, regroup_oversized_projects
 from aegis.dataset.leak_free_split import assert_no_leakage, group_aware_split
+from aegis.evaluation.studies import fix_lines
 from aegis.parsing.function_extractor import to_standalone
+
+CVE_YEAR = re.compile(r"CVE-(\d{4})-")
+
+
+def cve_year(fn: FunctionRecord) -> int | None:
+    match = CVE_YEAR.search(fn.cve_id or "")
+    return int(match.group(1)) if match else None
+
+
+def time_split(functions: list[FunctionRecord], train_frac: float = 0.7, val_frac: float = 0.15):
+    """Splits by CVE year: the oldest years train, later years validate, the
+    newest years test, so the model is scored only on vulnerabilities
+    disclosed after everything it learned from (a zero-day setting). Years
+    are never cut in two, so the fractions are approximate."""
+    dated = [fn for fn in functions if cve_year(fn) is not None]
+    if not dated:
+        raise ValueError("A time split needs CVE IDs with years (BigVul); this dataset has none.")
+    years = sorted({cve_year(fn) for fn in dated})
+    counts = {y: sum(cve_year(fn) == y for fn in dated) for y in years}
+    train_years, val_years, seen = set(), set(), 0
+    for y in years:
+        share = seen / len(dated)
+        if share < train_frac:
+            train_years.add(y)
+        elif share < train_frac + val_frac:
+            val_years.add(y)
+        seen += counts[y]
+    train = [fn for fn in dated if cve_year(fn) in train_years]
+    val = [fn for fn in dated if cve_year(fn) in val_years]
+    test = [fn for fn in dated if cve_year(fn) not in train_years | val_years]
+    return train, val, test
 
 # Always .cpp: BigVul labels real C++ (e.g. Chrome's `Class::Method` code)
 # as "C", and Joern's C frontend emits a single UNKNOWN node for C++ it can't
@@ -51,6 +84,9 @@ def write_split_sources(split_name: str, functions: list[FunctionRecord], output
             "cve_id": fn.cve_id,
             "cwe_id": fn.cwe_id,
             "commit_id": fn.commit_id,
+            # Lines the real fix changed, for checking line explanations (BigVul only).
+            "fix_lines": fix_lines(fn.source_before, fn.source_after)
+            if fn.label == 1 and fn.source_after and fn.source_after != fn.source_before else [],
         })
     return manifest
 
@@ -79,17 +115,21 @@ def _check_or_record_split(output_dir: Path, splits: dict[str, list[FunctionReco
 
 def prepare_dataset(functions: list[FunctionRecord], output_dir: Path,
                      train_frac: float = 0.7, val_frac: float = 0.15,
-                     seed: int = 42, max_project_frac: float = 0.10) -> dict[str, list[dict]]:
+                     seed: int = 42, max_project_frac: float = 0.10,
+                     split_mode: str = "group") -> dict[str, list[dict]]:
     """Leak-free splits functions (grouped by project, or by project+file for
     projects above max_project_frac of the dataset) and writes each split to
     output_dir/{train,val,test}/, each with its own manifest.json. Returns the
     same manifests as an in-memory dict keyed by split name."""
-    functions = regroup_oversized_projects(functions, max_project_frac=max_project_frac)
-    train, val, test = group_aware_split(functions, train_frac=train_frac, val_frac=val_frac, seed=seed)
-    assert_no_leakage(train, val, test)
+    if split_mode == "time":
+        train, val, test = time_split(functions, train_frac=train_frac, val_frac=val_frac)
+    else:
+        functions = regroup_oversized_projects(functions, max_project_frac=max_project_frac)
+        train, val, test = group_aware_split(functions, train_frac=train_frac, val_frac=val_frac, seed=seed)
+        assert_no_leakage(train, val, test)
     _check_or_record_split(output_dir, {"train": train, "val": val, "test": test},
                            {"train_frac": train_frac, "val_frac": val_frac, "seed": seed,
-                            "max_project_frac": max_project_frac})
+                            "max_project_frac": max_project_frac, "split_mode": split_mode})
 
     manifests = {}
     for split_name, split_functions in [("train", train), ("val", val), ("test", test)]:

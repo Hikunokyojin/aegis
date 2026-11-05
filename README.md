@@ -114,6 +114,19 @@ aegis-scan --checkpoint runs/juliet-java/best.pt path/to/project
 
 `--dataset` accepts `bigvul` (the [BigVul CSV](https://github.com/ZeoVan/MSR_20_Code_vulnerability_CSV_Dataset)), `juliet-java` or `juliet-cpp` (an extracted [NIST Juliet v1.3](https://samate.nist.gov/SARD/test-suites) archive).
 
+### Studies
+
+```bash
+aegis-study seeds     --data-dir data/bigvul --runs runs/s0 runs/s1 runs/s2   # mean ± 95% CI, paired test vs baselines
+aegis-study cross     --checkpoint runs/juliet-cpp/best.pt --data-dir data/bigvul  # synthetic → real transfer
+aegis-study cwe       --data-dir data/juliet-cpp --run-dir runs/juliet-cpp         # results per vulnerability type
+aegis-study calibrate --data-dir data/bigvul --run-dir runs/bigvul   # temperature scaling + "uncertain" margin
+aegis-study explain   --data-dir data/bigvul --run-dir runs/bigvul   # do highlighted lines hit the real fix?
+aegis-study noise     --data-dir data/bigvul --run-dir runs/bigvul   # conflicting duplicates, suspicious labels
+```
+
+`aegis-build-training-graphs --split-mode time` trains on older CVEs and tests on newer ones (a zero-day setting), and `--compact` halves graph storage for full-dataset builds. `aegis-train --seed` fixes the seed, and `--exclude-ids` drops audited noisy labels. Training streams graphs from disk, so the full datasets fit in memory. A calibrated model marks borderline functions as *uncertain* in the scanner and web app.
+
 ### On a free GPU
 
 [`notebooks/kaggle_pipeline.ipynb`](notebooks/kaggle_pipeline.ipynb) runs the whole pipeline (install, build graphs, train, benchmark, scan) on Kaggle. Choose the dataset in the first cell and run all cells.
