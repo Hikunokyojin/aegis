@@ -30,7 +30,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest", "pytest-cov", "ruff"]
-ui = ["streamlit>=1.40"]
+ui = ["streamlit>=1.65.0"]
 
 [project.scripts]
 aegis-build-training-graphs = "aegis.pipeline.build_training_graphs:main"
