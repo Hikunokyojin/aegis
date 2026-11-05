@@ -341,6 +341,10 @@ def main() -> None:
         aegis-study calibrate --data-dir data/bigvul --run-dir runs/bigvul
         aegis-study explain --data-dir data/bigvul --run-dir runs/bigvul
         aegis-study noise --data-dir data/bigvul --run-dir runs/bigvul
+        aegis-study robustness --data-dir data/bigvul --run-dir runs/bigvul --limit 300
+        aegis-study augment --data-dir data/bigvul        # then aegis-train --extra-train-dir ...
+        aegis-study poison --data-dir data/bigvul --rate 0.05
+        aegis-study detect-poison --data-dir data/bigvul --run-dir runs/bigvul_poisoned
     """
     parser = argparse.ArgumentParser(description="Uncertainty, generalisation, per-CWE, calibration, "
                                                  "explanation and label-noise studies.")
@@ -357,6 +361,21 @@ def main() -> None:
         p.add_argument("--data-dir", type=Path, required=True)
         p.add_argument("--run-dir", type=Path, required=name != "noise")
     sub.choices["calibrate"].add_argument("--target-accuracy", type=float, default=0.9)
+    r = sub.add_parser("robustness", help="Do meaning-preserving code changes flip the verdict?")
+    r.add_argument("--data-dir", type=Path, required=True)
+    r.add_argument("--run-dir", type=Path, required=True)
+    r.add_argument("--transforms", nargs="+", default=["rename", "deadcode", "rename+deadcode"])
+    r.add_argument("--limit", type=int, default=None, help="Score a random subset of this many test functions")
+    a = sub.add_parser("augment", help="Transformed copies of the training split for adversarial training")
+    a.add_argument("--data-dir", type=Path, required=True)
+    a.add_argument("--transforms", nargs="+", default=["rename", "deadcode"])
+    po = sub.add_parser("poison", help="Plant a backdoor in a copy of the training data (for testing defences)")
+    po.add_argument("--data-dir", type=Path, required=True)
+    po.add_argument("--rate", type=float, default=0.05)
+    d = sub.add_parser("detect-poison", help="Spectral-signature scan of the training data")
+    d.add_argument("--data-dir", type=Path, required=True)
+    d.add_argument("--run-dir", type=Path, required=True, help="A model trained on the (possibly poisoned) data")
+    d.add_argument("--flag-fraction", type=float, default=0.075)
     sub.choices["explain"].add_argument("--k", type=int, default=3)
     args = parser.parse_args()
 
@@ -372,11 +391,30 @@ def main() -> None:
         result = study_calibration(args.data_dir, args.run_dir, args.target_accuracy)
     elif args.study == "explain":
         result = study_explanations(args.data_dir, args.run_dir, args.k)
-    else:
+    elif args.study == "noise":
         result = study_noise(args.data_dir, args.run_dir)
+    elif args.study == "robustness":
+        from aegis.evaluation.robustness import robustness_study
+        result = robustness_study(args.data_dir, args.run_dir, args.transforms, limit=args.limit,
+                                  threshold=_val_threshold(args.run_dir))
+    elif args.study == "augment":
+        from aegis.evaluation.robustness import augment_split
+        result = augment_split(args.data_dir, args.transforms)
+    elif args.study == "poison":
+        from aegis.evaluation.robustness import poison_split
+        result = poison_split(args.data_dir, args.rate)
+    else:
+        from aegis.evaluation.robustness import detect_poison, spectral_signature_scores
+        poisoned_dir = args.data_dir / "train_poisoned"
+        poisoned_file = poisoned_dir / "poisoned_ids.json"
+        poisoned = set(json.loads(poisoned_file.read_text())) if poisoned_file.exists() else set()
+        scores = spectral_signature_scores(args.run_dir / "best.pt",
+                                           [args.data_dir / "train" / "graphs", poisoned_dir / "graphs"])
+        result = detect_poison(scores, poisoned, args.flag_fraction)
     out_dir = (getattr(args, "run_dir", None) or args.data_dir) / "studies"
     out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / f"{args.study}.json").write_text(json.dumps(result, indent=2))
+    name = args.study + ("_" + "-".join(args.transforms) if args.study == "robustness" else "")
+    (out_dir / f"{name}.json").write_text(json.dumps(result, indent=2))
     print(json.dumps(result, indent=2))
 
 

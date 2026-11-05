@@ -40,13 +40,17 @@ class AegisHeteroGNN(nn.Module):
         self.classifier = nn.Linear(hidden_dim, 2)  # binary: vulnerable / safe
 
     def forward(self, x: torch.Tensor, edge_index_dict: dict, batch: torch.Tensor) -> torch.Tensor:
+        return self.classifier(self.embed(x, edge_index_dict, batch))
+
+    def embed(self, x: torch.Tensor, edge_index_dict: dict, batch: torch.Tensor) -> torch.Tensor:
+        """One learned vector per function (the input to the final classifier)."""
         h = self.input_proj(x)
         for conv, norm in zip(self.layers, self.norms):
             out = conv({NODE: h}, edge_index_dict)[NODE]
             if out is None:  # no edges of any type anywhere in the batch
                 out = torch.zeros_like(h)
             h = norm(F.relu(out) + h)  # residual connection
-        return self.classifier(global_mean_pool(h, batch))
+        return global_mean_pool(h, batch)
 
 
 class FocalLoss(nn.Module):

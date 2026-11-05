@@ -125,6 +125,15 @@ aegis-study explain   --data-dir data/bigvul --run-dir runs/bigvul   # do highli
 aegis-study noise     --data-dir data/bigvul --run-dir runs/bigvul   # conflicting duplicates, suspicious labels
 ```
 
+Model security:
+
+```bash
+aegis-study robustness    --data-dir data/bigvul --run-dir runs/bigvul --limit 300  # renamed variables / dead code: does the verdict flip?
+aegis-study augment       --data-dir data/bigvul   # transformed training copies; train with --extra-train-dir to harden
+aegis-study poison        --data-dir data/bigvul --rate 0.05   # plant a backdoor to test defences
+aegis-study detect-poison --data-dir data/bigvul --run-dir runs/bigvul_poisoned   # spectral-signature scan
+```
+
 `aegis-build-training-graphs --split-mode time` trains on older CVEs and tests on newer ones (a zero-day setting), and `--compact` halves graph storage for full-dataset builds. `aegis-train --seed` fixes the seed, and `--exclude-ids` drops audited noisy labels. Training streams graphs from disk, so the full datasets fit in memory. A calibrated model marks borderline functions as *uncertain* in the scanner and web app.
 
 ### On a free GPU
