@@ -27,7 +27,7 @@ jobs:
       - name: Install (CPU-only PyTorch)
         run: |
           pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu
-          pip install -e ".[dev,ui]"
+          pip install -e ".[dev,ui,api]"
       - name: Cache CodeBERT
         uses: actions/cache@v4
         with:
@@ -47,5 +47,5 @@ jobs:
         run: |
           pip install --upgrade pip setuptools pip-audit
           pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu
-          pip install -e ".[ui]"
+          pip install -e ".[ui,api]"
           pip-audit --skip-editable

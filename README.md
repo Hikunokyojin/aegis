@@ -117,6 +117,19 @@ aegis-scan --checkpoint runs/juliet-java/best.pt path/to/project
 
 `--dataset` accepts `bigvul` (the [BigVul CSV](https://github.com/ZeoVan/MSR_20_Code_vulnerability_CSV_Dataset)), `juliet-java` or `juliet-cpp` (an extracted [NIST Juliet v1.3](https://samate.nist.gov/SARD/test-suites) archive).
 
+### Scanning at scale
+
+```bash
+aegis-scan --checkpoint runs/bigvul/best.pt --cache-dir ~/.aegis/cache --workers 4 path/to/repo  # re-scans only edited functions
+aegis-scan --checkpoint runs/bigvul/best.pt --quantize path/to/repo                               # 8-bit models, ~1.7x faster on CPU
+aegis-build-training-graphs ... --workers 4                                                        # parallel Joern
+aegis-serve --port 8000                                                                            # HTTP service with a job queue
+```
+
+Every scan also builds a call graph over the scanned code. A function that calls a risky function inherits part of its risk (decaying with each call, up to three calls deep), and the report shows the call chain, so flaws that span functions are not hidden by scoring each function alone.
+
+The service takes `POST /scans` with `{"files": {"path.c": "<code>"}}` and returns a job id; `GET /scans/{id}` returns the result. Jobs run one at a time from a capped queue, and submitted code is deleted when its job ends.
+
 ### Studies
 
 ```bash

@@ -188,6 +188,7 @@ if result:
     st.dataframe([{"Risk": round(f["probability"], 3),
                    "Flag": "❔ uncertain" if f.get("uncertain") else ("⚠️" if f["probability"] >= threshold else ""),
                    "Function": f["function"], "Location": f"{rel(f['file'])}:{f['start_line']}",
+                   "Calls risky code": round(f.get("context_risk", 0.0), 3),
                    "Semgrep": sum(x["tool"] == "semgrep" for x in f.get("findings", []))} for f in fns],
                  use_container_width=True, hide_index=True)
     st.caption("Risk is the model's probability that the function is vulnerable. ❔ means the calibrated model "
@@ -200,6 +201,9 @@ if result:
         with st.expander(label, expanded=i == 0):
             st.markdown(heat_html(f["source"], f["start_line"], f["line_scores"], f.get("findings", [])),
                         unsafe_allow_html=True)
+            if f.get("context_risk", 0.0) >= threshold:
+                st.warning(f"Calls into risky code: {' → '.join(f['risk_path'])} "
+                           f"(inherited risk {f['context_risk']:.3f}). Review the callee with this function.")
             if f.get("findings"):
                 st.write("**Tool findings**")
                 for x in f["findings"]:

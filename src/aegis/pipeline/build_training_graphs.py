@@ -126,6 +126,25 @@ def parse_function_files(paths: list[Path], workspace_dir: Path, tokenizer, mode
     return graphs
 
 
+def parallel_parse(paths: list[Path], workspace_dir: Path, tokenizer, model, runner=subprocess.run,
+                   workers: int = 1) -> dict:
+    """parse_function_files split across `workers` Joern processes, each in its
+    own workspace. Joern dominates the run time and is a separate process, so
+    threads are enough; results are merged into one {file name: graph} dict."""
+    if workers <= 1 or len(paths) < 2:
+        return parse_function_files(paths, workspace_dir, tokenizer, model, runner)
+    from concurrent.futures import ThreadPoolExecutor
+
+    chunks = [paths[i::workers] for i in range(workers) if paths[i::workers]]
+    with ThreadPoolExecutor(max_workers=len(chunks)) as pool:
+        parts = pool.map(lambda ic: parse_function_files(ic[1], workspace_dir.parent / f"{workspace_dir.name}_w{ic[0]}",
+                                                         tokenizer, model, runner), enumerate(chunks))
+        merged = {}
+        for part in parts:
+            merged.update(part)
+    return merged
+
+
 def save_graphs(graphs_by_filename: dict, manifest_entries: list[dict],
                 output_dir: Path, compact: bool = False) -> tuple[list[int], list[int]]:
     """Saves each manifest entry's graph (looked up by its source file's
@@ -154,7 +173,7 @@ def save_graphs(graphs_by_filename: dict, manifest_entries: list[dict],
 def build_training_graphs(functions: list[FunctionRecord], output_dir: Path, batch_size: int = 500,
                            train_frac: float = 0.7, val_frac: float = 0.15, seed: int = 42,
                            runner=subprocess.run, split_mode: str = "group",
-                           compact: bool = False) -> dict[str, dict]:
+                           compact: bool = False, workers: int = 1) -> dict[str, dict]:
     """Runs the full pipeline and returns a per-split summary:
     {split: {"saved": N, "missing": N, "missing_ids": [...]}}."""
     manifests = prepare_dataset(functions, output_dir, train_frac=train_frac, val_frac=val_frac, seed=seed,
@@ -174,7 +193,7 @@ def build_training_graphs(functions: list[FunctionRecord], output_dir: Path, bat
             batch_paths = [output_dir / entry["source_path"] for entry in batch]
             workspace_dir = output_dir / split / "_joern_workspace"
 
-            graphs = parse_function_files(batch_paths, workspace_dir, tokenizer, model, runner)
+            graphs = parallel_parse(batch_paths, workspace_dir, tokenizer, model, runner, workers)
 
             saved, missing = save_graphs(graphs, batch, graphs_dir, compact=compact)
             saved_total.extend(saved)
@@ -217,6 +236,8 @@ def main() -> None:
                         help="group: leak-free by project/file; time: train on older CVEs, test on newer (BigVul)")
     parser.add_argument("--compact", action="store_true",
                         help="Store node features in half precision (for full-dataset builds)")
+    parser.add_argument("--workers", type=int, default=1,
+                        help="Joern processes to run in parallel (each needs ~2-4 GB of memory)")
     args = parser.parse_args()
 
     print(f"Loading {args.dataset} functions from {args.input} ...")
@@ -230,7 +251,7 @@ def main() -> None:
     summary = build_training_graphs(
         functions, args.output_dir,
         batch_size=args.batch_size, train_frac=args.train_frac, val_frac=args.val_frac, seed=args.seed,
-        split_mode=args.split_mode, compact=args.compact,
+        split_mode=args.split_mode, compact=args.compact, workers=args.workers,
     )
 
     total_saved = sum(s["saved"] for s in summary.values())
