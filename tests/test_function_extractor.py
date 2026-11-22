@@ -50,7 +50,7 @@ def test_cpp_standalone_source_is_unchanged():
 
 def test_unsupported_language_is_rejected():
     with pytest.raises(ValueError):
-        extract_functions("x", "python")
+        extract_functions("x", "ruby")
 
 
 def test_known_good_fixtures_parse_without_syntax_errors():

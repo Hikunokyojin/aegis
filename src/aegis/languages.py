@@ -6,10 +6,15 @@ file type is never supported in one place and silently skipped in another.
 from pathlib import Path
 
 SOURCE_LANGUAGES = {".c": "cpp", ".cc": "cpp", ".cpp": "cpp", ".cxx": "cpp", ".h": "cpp", ".hpp": "cpp",
-                    ".java": "java"}
+                    ".java": "java", ".py": "python", ".js": "javascript", ".mjs": "javascript",
+                    ".cjs": "javascript", ".jsx": "javascript", ".go": "go"}
+# Languages with a trained model. The others are parsed, turned into graphs
+# and checked by Semgrep, and reported as "no trained model" instead of
+# being given a score the model was never trained to produce.
+MODEL_LANGUAGES = ("cpp", "java")
 # Each function is analysed as its own file: C/C++ always as .cpp (Joern's
 # C++ frontend also handles C), Java as .java.
-STAGED_EXTENSION = {"cpp": ".cpp", "java": ".java"}
+STAGED_EXTENSION = {"cpp": ".cpp", "java": ".java", "python": ".py", "javascript": ".js", "go": ".go"}
 
 
 def language_of(path: Path) -> str | None:

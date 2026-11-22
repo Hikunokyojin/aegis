@@ -22,7 +22,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from aegis.evaluation.baselines import SEMGREP_CONFIGS, semgrep_commands
-from aegis.languages import SOURCE_LANGUAGES
+from aegis.languages import SOURCE_LANGUAGES, STAGED_EXTENSION
 from aegis.model.hetero_gnn import NODE
 from aegis.parsing.function_extractor import to_standalone
 from aegis.scanning.scanner import analyze, explain_lines  # noqa: F401  (re-exported for the web app)
@@ -69,7 +69,14 @@ class UnsafeArchiveError(ValueError):
 # ---------------------------------------------------------------- inputs
 
 def detect_language(code: str) -> str:
-    """"java" or "cpp" (C and C++), from tell-tale tokens; C/C++ when unsure."""
+    """"python", "go", "javascript", "java" or "cpp" (C and C++), from
+    tell-tale tokens; C/C++ when unsure."""
+    if re.search(r"^\s*def \w+\(.*\)\s*(->\s*[\w\[\], .]+)?:\s*$", code, re.M):
+        return "python"
+    if re.search(r"^\s*package \w+\s*$", code, re.M) or re.search(r"\bfunc\s+(\(\w+ \*?\w+\)\s*)?\w+\(", code):
+        return "go"
+    if re.search(r"\b(const|let)\s+\w+\s*=|=>|\bfunction\s+\w+\s*\(|\brequire\(|console\.log", code):
+        return "javascript"
     java = sum(bool(re.search(p, code)) for p in (
         r"\bimport\s+java", r"\bpackage\s+[\w.]+;", r"\bSystem\.out\.", r"\bpublic\s+(static\s+)?(class|void)",
         r"\bString\[\]", r"\bnew\s+\w+\(.*\)\s*;", r"@Override", r"\bthrows\b"))
@@ -88,15 +95,16 @@ def write_pasted_code(code: str, language: str, folder: Path) -> Path:
             code = to_standalone(code, "java")
         path = folder / "Snippet.java"
     else:
-        path = folder / "snippet.cpp"
+        path = folder / f"snippet{STAGED_EXTENSION.get(language, '.cpp')}"
     path.write_text(code, encoding="utf-8")
     return path
 
 
 def safe_extract_zip(zip_path: Path, dest: Path, max_total_bytes: int = MAX_ARCHIVE_BYTES,
-                     max_files: int = MAX_ARCHIVE_FILES) -> list[Path]:
-    """Extracts only C/C++/Java source files from zip_path into dest and
-    returns their paths. Raises UnsafeArchiveError for any entry that would
+                     max_files: int = MAX_ARCHIVE_FILES, keep_names: frozenset = frozenset()) -> list[Path]:
+    """Extracts only supported source files (plus any file whose lower-case
+    name is in keep_names, such as a security policy) from zip_path into dest
+    and returns the source files' paths. Raises UnsafeArchiveError for any entry that would
     land outside dest, or when the archive is too big or has too many files."""
     dest = dest.resolve()
     dest.mkdir(parents=True, exist_ok=True)
@@ -115,7 +123,8 @@ def safe_extract_zip(zip_path: Path, dest: Path, max_total_bytes: int = MAX_ARCH
                 raise UnsafeArchiveError(f"Archive entry escapes the extraction folder: {info.filename}")
             if info.is_dir() or stat.S_ISLNK(info.external_attr >> 16):
                 continue
-            if Path(name).suffix.lower() not in SOURCE_LANGUAGES:
+            is_source = Path(name).suffix.lower() in SOURCE_LANGUAGES
+            if not is_source and Path(name).name.lower() not in keep_names:
                 continue
             total += info.file_size
             if total > max_total_bytes:
@@ -123,7 +132,8 @@ def safe_extract_zip(zip_path: Path, dest: Path, max_total_bytes: int = MAX_ARCH
             target.parent.mkdir(parents=True, exist_ok=True)
             with zf.open(info) as src, open(target, "wb") as out:
                 out.write(src.read(max_total_bytes + 1))
-            written.append(target)
+            if is_source:
+                written.append(target)
     return written
 
 
@@ -157,9 +167,35 @@ def download_github_repo(url: str, dest: Path, max_bytes: int = MAX_ARCHIVE_BYTE
                 raise UnsafeArchiveError(f"Repository download exceeds {max_bytes // (1024 * 1024)} MB.")
             out.write(chunk)
     try:
-        return safe_extract_zip(archive, dest / "repo")
+        return safe_extract_zip(archive, dest / "repo", keep_names=frozenset({"security.md"}))
     finally:
         archive.unlink(missing_ok=True)
+
+
+def disclosure_guidance(repo_dir: Path, owner: str, repo: str) -> dict:
+    """How to report a suspected vulnerability in someone else's public
+    repository responsibly: the project's own security policy if it has one
+    (SECURITY.md in the root, .github/ or docs/), GitHub's private
+    vulnerability-report form, and the steps to take before reporting."""
+    policy = None
+    for path in sorted(Path(repo_dir).rglob("*"), key=lambda p: len(p.parts)):
+        if path.is_file() and path.name.lower() == "security.md":
+            policy = path
+            break
+    return {
+        "policy_file": str(policy.relative_to(repo_dir)) if policy else None,
+        "policy_text": policy.read_text(encoding="utf-8", errors="replace")[:3000] if policy else None,
+        "private_report_url": f"https://github.com/{owner}/{repo}/security/advisories/new",
+        "steps": [
+            "Confirm it by hand first: read the function, trace where its input comes from, and try to "
+            "trigger it. Aegis ranks risk; it does not prove a vulnerability.",
+            "Do not open a public issue, pull request or post about it: that tells attackers before users are safe.",
+            "Report privately: follow the project's security policy if it has one, otherwise use GitHub's "
+            "private vulnerability report form (if the maintainers enabled it) or contact them privately.",
+            "Include the file, function, line, why it is exploitable and a minimal way to reproduce it.",
+            "Give the maintainers time to fix it (commonly 90 days) before any public disclosure.",
+        ],
+    }
 
 
 # ---------------------------------------------------------------- Semgrep on the same code
@@ -181,12 +217,12 @@ def run_semgrep(files: list[Path], work_dir: Path, runner=subprocess.run) -> lis
     """Semgrep findings for `files` as [{tool, file, line, rule, message}].
     C/C++ is scanned as .c because Semgrep OSS skips .cpp files."""
     findings = []
-    for language in ("cpp", "java"):
+    for language in SEMGREP_CONFIGS:
         group = [f for f in files if SOURCE_LANGUAGES.get(f.suffix.lower()) == language]
         if not group:
             continue
         scan_dir = work_dir / f"semgrep_{language}"
-        staged = _stage_for_tool(group, scan_dir, ".c")
+        staged = _stage_for_tool(group, scan_dir, ".c" if language == "cpp" else None)
         output = work_dir / f"semgrep_{language}.json"
         for cmd in semgrep_commands(scan_dir, output, SEMGREP_CONFIGS[language]):
             runner(cmd, check=True)

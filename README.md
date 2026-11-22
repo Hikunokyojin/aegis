@@ -117,6 +117,18 @@ aegis-scan --checkpoint runs/juliet-java/best.pt path/to/project
 
 `--dataset` accepts `bigvul` (the [BigVul CSV](https://github.com/ZeoVan/MSR_20_Code_vulnerability_CSV_Dataset)), `juliet-java` or `juliet-cpp` (an extracted [NIST Juliet v1.3](https://samate.nist.gov/SARD/test-suites) archive).
 
+### Languages
+
+C, C++ and Java are scored by trained models. Python, JavaScript and Go files are parsed into functions, turned into code property graphs by Joern and checked by Semgrep, and listed as "no trained model" rather than given a score the model was never trained for. Training a model for them needs a labelled dataset in that language; the pipeline is otherwise the same.
+
+### Responsible disclosure
+
+When a scanned public GitHub repository has flagged functions, the web app explains how to report a confirmed issue privately: it shows the project's `SECURITY.md` if it has one and links to GitHub's private vulnerability report form, and asks you to verify by hand first and not to open a public issue.
+
+### Hosting
+
+`deploy/huggingface/Dockerfile` runs the web app on a free Hugging Face Space (CPU basic). Optional "Sign in with Hugging Face" for repository scans is configured in `.streamlit/secrets.toml` (see `.streamlit/secrets.example.toml`). Each session's scans are listed in the sidebar and can be downloaded as JSON; nothing is stored on the server.
+
 ### Scanning at scale
 
 ```bash
@@ -168,7 +180,8 @@ src/aegis/
 ├── model/        heterogeneous graph transformer and focal loss
 ├── training/     resumable training loop
 ├── evaluation/   Semgrep / CodeQL baselines and benchmark
-├── scanning/     command-line scanner
+├── scanning/     scoring engine, graph cache, call graph, command-line scanner
+├── service/      HTTP scanning service
 └── ui/           web app (Streamlit) and its analysis logic
 notebooks/        end-to-end Kaggle pipeline
 tests/            pytest suite with C++/Java fixtures

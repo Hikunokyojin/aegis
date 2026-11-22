@@ -22,7 +22,7 @@ from aegis.evaluation.compare import load_trained_model
 from aegis.evaluation.studies import apply_temperature
 from aegis.languages import STAGED_EXTENSION, collect_source_files, language_of
 from aegis.model.hetero_gnn import NODE
-from aegis.parsing.function_extractor import extract_functions, to_standalone
+from aegis.parsing.function_extractor import WRAPPER_LINES, extract_functions, to_standalone
 from aegis.pipeline.build_training_graphs import parallel_parse
 from aegis.scanning.scale import GraphCache, call_graph, propagate_risk, quantize_for_cpu
 
@@ -80,7 +80,7 @@ def analyze(files: list[Path], model_paths: dict[str, Path], work_dir: Path, dev
     device = device or default_device()
     shutil.rmtree(work_dir, ignore_errors=True)
 
-    staged: dict[str, dict[str, dict]] = {"cpp": {}, "java": {}}
+    staged: dict[str, dict[str, dict]] = {language: {} for language in STAGED_EXTENSION}
     unparsed = []
     for file in files:
         language = language_of(file)
@@ -135,7 +135,7 @@ def analyze(files: list[Path], model_paths: dict[str, Path], work_dir: Path, dev
                 cache.put(infos[name]["_key"], graph)
         graphs.update(fresh)
         # A Java method sits one line below the wrapper class line in its analysed file.
-        wrapper_lines = 1 if language == "java" else 0
+        wrapper_lines = WRAPPER_LINES[language]
         for name, info in infos.items():
             graph = graphs.get(name)
             if graph is None:

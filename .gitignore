@@ -21,3 +21,10 @@ dist/
 .vscode/
 .idea/
 .DS_Store
+
+# Streamlit secrets (sign-in keys)
+.streamlit/secrets.toml
+
+# Trained models are uploaded to the Space, not committed
+deploy/huggingface/models/*.pt
+deploy/huggingface/models/*.sha256

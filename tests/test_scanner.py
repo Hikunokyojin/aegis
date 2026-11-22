@@ -25,7 +25,7 @@ def _checkpoint(path: Path) -> Path:
 
 def test_collect_source_files_finds_supported_languages_recursively(tmp_path):
     (tmp_path / "src" / "deep").mkdir(parents=True)
-    for name in ("a.c", "src/b.cpp", "src/deep/C.java", "notes.txt", "src/x.py"):
+    for name in ("a.c", "src/b.cpp", "src/deep/C.java", "notes.txt", "src/x.rb"):
         (tmp_path / name).write_text("")
     found = collect_source_files([tmp_path])
     assert sorted(p.name for p in found) == ["C.java", "a.c", "b.cpp"]

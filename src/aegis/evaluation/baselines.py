@@ -25,7 +25,9 @@ import shutil
 import subprocess
 from pathlib import Path
 
-SEMGREP_CONFIGS = {"cpp": ["p/c", "p/security-audit"], "java": ["p/java", "p/security-audit"]}
+SEMGREP_CONFIGS = {"cpp": ["p/c", "p/security-audit"], "java": ["p/java", "p/security-audit"],
+                   "python": ["p/python", "p/security-audit"], "javascript": ["p/javascript", "p/security-audit"],
+                   "go": ["p/golang", "p/security-audit"]}
 SEMGREP_EXTENSION = {"cpp": ".c", "java": None}
 CODEQL_SUITES = {"cpp": "codeql/cpp-queries:codeql-suites/cpp-security-extended.qls",
                  "java": "codeql/java-queries:codeql-suites/java-security-extended.qls"}

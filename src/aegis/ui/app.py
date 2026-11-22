@@ -9,10 +9,12 @@ lives in a private temporary folder that is deleted as soon as the scan ends.
 All analysis logic lives in aegis.ui.analysis; this file only draws it.
 """
 import html
+import json
 import os
 import shutil
 import subprocess
 import tempfile
+import time
 import uuid
 from functools import partial
 from pathlib import Path
@@ -25,8 +27,10 @@ from aegis.ui.analysis import (
     analyze,
     attach_findings,
     detect_language,
+    disclosure_guidance,
     download_github_repo,
     graph_to_dot,
+    parse_github_url,
     run_semgrep,
     safe_extract_zip,
     write_pasted_code,
@@ -35,6 +39,8 @@ from aegis.ui.analysis import (
 MODELS_DIR = Path(os.environ.get("AEGIS_MODELS_DIR", Path.home() / ".aegis" / "models"))
 CPP_MODELS = {"BigVul (real-world C/C++)": "bigvul.pt", "Juliet C/C++ (synthetic test suite)": "juliet-cpp.pt"}
 JAVA_MODEL = "juliet-java.pt"
+PASTE_LANGUAGES = {"Auto-detect": None, "C/C++": "cpp", "Java": "java", "Python": "python",
+                   "JavaScript": "javascript", "Go": "go"}
 # Limits that keep one visitor from exhausting a shared free server.
 MAX_FUNCTIONS = int(os.environ.get("AEGIS_MAX_FUNCTIONS", 200))
 TOOL_TIMEOUT_SECONDS = int(os.environ.get("AEGIS_TOOL_TIMEOUT", 300))
@@ -87,7 +93,7 @@ def collect_files(work: Path, mode: str, pasted: str, language: str, uploads, gi
     shutil.rmtree(inputs, ignore_errors=True)
     inputs.mkdir(parents=True)
     if mode == "Paste code":
-        lang = detect_language(pasted) if language == "Auto-detect" else ("java" if language == "Java" else "cpp")
+        lang = detect_language(pasted) if language == "Auto-detect" else PASTE_LANGUAGES[language]
         return [write_pasted_code(pasted, lang, inputs)]
     if mode == "Upload files":
         files = []
@@ -134,17 +140,31 @@ st.caption(f"🔒 Privacy: your code is processed only to produce this report, i
 mode = st.radio("Input", ["Paste code", "Upload files", "GitHub link"], horizontal=True)
 pasted, language, uploads, github_url = "", "Auto-detect", None, ""
 if mode == "Paste code":
-    language = st.selectbox("Language", ["Auto-detect", "C/C++", "Java"])
+    language = st.selectbox("Language", list(PASTE_LANGUAGES))
     pasted = st.text_area("Code", value=EXAMPLE_C, height=280)
 elif mode == "Upload files":
     uploads = st.file_uploader("C/C++/Java files or a .zip of a project", accept_multiple_files=True,
-                               type=["c", "cc", "cpp", "cxx", "h", "hpp", "java", "zip"])
+                               type=[ext.lstrip(".") for ext in SOURCE_LANGUAGES] + ["zip"])
 else:
     github_url = st.text_input("Public GitHub repository", placeholder="https://github.com/owner/repository")
     st.caption("The default branch is downloaded (max 50 MB) and its C/C++/Java files are scanned. "
                "Large repositories take long.")
 
-if st.button("Scan", type="primary"):
+def login_configured() -> bool:
+    """True when the host set up sign-in (Sign in with Hugging Face) in .streamlit/secrets.toml."""
+    try:
+        return "auth" in st.secrets
+    except Exception:  # no secrets file at all
+        return False
+
+
+needs_login = mode == "GitHub link" and login_configured() and not st.user.is_logged_in
+if needs_login:
+    st.info("Scanning GitHub repositories on this server needs a free sign-in, to keep it fair for everyone.")
+    if st.button("Sign in with Hugging Face"):
+        st.login()
+
+if st.button("Scan", type="primary", disabled=needs_login):
     work = Path(tempfile.mkdtemp(prefix="aegis_"))
     runner = partial(subprocess.run, timeout=TOOL_TIMEOUT_SECONDS)
     try:
@@ -152,7 +172,7 @@ if st.button("Scan", type="primary"):
             st.write("Collecting source files")
             files = collect_files(work, mode, pasted, language, uploads, github_url)
             if not files:
-                raise ValueError("No C/C++/Java source files found in the input.")
+                raise ValueError("No supported source files (C/C++, Java, Python, JavaScript, Go) in the input.")
             st.write(f"{len(files)} file(s). Building code graphs with Joern and scoring functions…")
             result = analyze(files, model_paths, work / "analysis", explain=explain, runner=runner,
                              max_functions=MAX_FUNCTIONS)
@@ -161,8 +181,17 @@ if st.button("Scan", type="primary"):
                 st.write("Running Semgrep…")
                 findings += run_semgrep(files, work / "tools", runner=runner)
             unmatched = attach_findings(result["functions"], findings)
+            guidance = None
+            if mode == "GitHub link":
+                owner, repo = parse_github_url(github_url)
+                guidance = disclosure_guidance(work / "input" / "repo", owner, repo)
             st.session_state["result"] = {**result, "unmatched": unmatched, "root": str(work / "input"),
-                                          "tools": ["Semgrep"] if use_semgrep else []}
+                                          "tools": ["Semgrep"] if use_semgrep else [], "disclosure": guidance}
+            labels = {"Paste code": "pasted code", "Upload files": f"{len(files)} uploaded file(s)"}
+            label = labels.get(mode, github_url)
+            st.session_state.setdefault("history", []).insert(0, {
+                "when": time.strftime("%H:%M:%S"), "input": label, "functions": len(result["functions"]),
+                "top": [(f["function"], round(f["probability"], 3)) for f in result["functions"][:3]]})
             status.update(label="Scan complete", state="complete")
     except subprocess.TimeoutExpired:
         st.error(f"Scan stopped: a tool ran longer than {TOOL_TIMEOUT_SECONDS} s. Try a smaller input.")
@@ -219,3 +248,27 @@ if result:
         st.subheader("Not analysed")
         for u in result["unparsed"]:
             st.write(f"- `{u['function']}` at {rel(u['file'])}:{u['start_line']} — {u['reason']}")
+
+    guidance = result.get("disclosure")
+    if guidance and flagged:
+        with st.expander("🔐 Found something real in this repository? Report it privately"):
+            for step in guidance["steps"]:
+                st.write(f"- {step}")
+            if guidance["policy_file"]:
+                st.write(f"This project has a security policy (`{guidance['policy_file']}`). Follow it:")
+                st.code(guidance["policy_text"], language="markdown")
+            st.link_button("Open GitHub's private vulnerability report form", guidance["private_report_url"])
+
+    report = {"functions": [{k: f.get(k) for k in ("file", "function", "start_line", "probability", "uncertain",
+                                                   "context_risk", "risk_path")} for f in fns],
+              "unparsed": [{k: u[k] for k in ("file", "function", "start_line", "reason")} for u in result["unparsed"]]}
+    st.download_button("Download this report (JSON)", json.dumps(report, indent=2), "aegis-report.json",
+                       mime="application/json")
+
+if st.session_state.get("history"):
+    with st.sidebar.expander("This session's scans"):
+        st.caption("Kept only in this browser session; nothing is stored on the server.")
+        for h in st.session_state["history"][:20]:
+            st.write(f"**{h['when']}** · {h['input']} · {h['functions']} functions")
+            for name, prob in h["top"]:
+                st.caption(f"{prob:.3f} {name}")
