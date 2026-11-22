@@ -69,6 +69,8 @@ Aegis ranks vulnerable functions above safe ones better than both rule-based bas
 
 **Robustness.** Renaming variables or inserting dead code (behaviour unchanged) flipped 14–88% of the plain models' verdicts; models trained on such variants flip 0.3–11%. A planted 5% trigger backdoor never hid a detected bug, and a spectral-signature scan found 23% of poisoned Juliet C/C++ samples (random: 7.5%).
 
+**Generalisation.** Trained only on older BigVul CVEs and tested on the newest years (a zero-day setting), Aegis scores PR-AUC 0.40 against 0.22 (Semgrep) and 0.06 (CodeQL), but with only 6 vulnerable test functions the interval is wide (0.04–0.78). A model trained on synthetic Juliet C/C++ scores at chance level on real-world BigVul (0.055 vs a 0.056 base rate): what it learns from Juliet does not transfer.
+
 **Read these numbers with care:**
 - Real-world code (BigVul) remains hard, and that model overfits a 2,000-function sample.
 - Juliet is synthetic and repetitive, so its scores are optimistic.
