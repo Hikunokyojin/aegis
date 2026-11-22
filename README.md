@@ -57,20 +57,23 @@ flowchart LR
 
 ## Results
 
-Held-out test functions, 2,000-function sample per dataset, trained for 30 epochs on a Kaggle T4. All three tools are scored on the same functions.
+Held-out test functions, 2,000-function sample per dataset, 30 epochs on a Kaggle T4, **five training seeds** (mean ± std, 95% CI). All three tools are scored on the same functions; p is a paired bootstrap test of Aegis against each baseline.
 
-| Dataset | Aegis PR-AUC | Semgrep PR-AUC | CodeQL PR-AUC | Aegis F1 |
+| Dataset | Aegis PR-AUC | Semgrep PR-AUC | CodeQL PR-AUC | p |
 |---|:---:|:---:|:---:|:---:|
-| BigVul (real-world C/C++) | **0.145** | 0.056 | 0.056 | 0.095 |
-| Juliet Java | **0.494** | 0.304 | 0.296 | 0.500 |
-| Juliet C/C++ | **0.856** | 0.362 | 0.367 | 0.777 |
+| BigVul (real-world C/C++) | **0.139 ± 0.014** (0.121–0.156) | 0.056 | 0.056 | 0.029 |
+| Juliet Java | **0.421 ± 0.042** (0.369–0.473) | 0.304 | 0.296 | ≤ 0.002 |
+| Juliet C/C++ | **0.780 ± 0.044** (0.725–0.835) | 0.362 | 0.367 | 0.001 |
 
 Aegis ranks vulnerable functions above safe ones better than both rule-based baselines on every dataset. A tool that flags nothing scores PR-AUC equal to the share of vulnerable functions in the test set.
+
+**Robustness.** Renaming variables or inserting dead code (behaviour unchanged) flipped 14–88% of the plain models' verdicts; models trained on such variants flip 0.3–11%. A planted 5% trigger backdoor never hid a detected bug, and a spectral-signature scan found 23% of poisoned Juliet C/C++ samples (random: 7.5%).
 
 **Read these numbers with care:**
 - Real-world code (BigVul) remains hard, and that model overfits a 2,000-function sample.
 - Juliet is synthetic and repetitive, so its scores are optimistic.
 - The baselines see single functions without the rest of the program, which limits their inter-procedural analysis.
+- Line explanations hit a line changed by the real BigVul fix 31% of the time (top 3 lines) against 27% for random lines, so treat them as hints.
 
 ## Quick start
 
