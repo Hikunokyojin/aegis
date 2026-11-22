@@ -25,7 +25,7 @@ dependencies = [
     "tree-sitter-python==0.23.6",
     "tree-sitter-javascript==0.23.1",
     "tree-sitter-go==0.23.4",
-    "transformers==5.16.1",
+    "transformers==5.20.2",
     "torch==2.13.0",
     "torch-geometric>=2.8.0,<2.9.0",
     "scikit-learn>=1.9.1,<2.0",
