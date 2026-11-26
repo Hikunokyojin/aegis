@@ -129,7 +129,7 @@ When a scanned public GitHub repository has flagged functions, the web app expla
 
 ### Hosting
 
-`deploy/huggingface/Dockerfile` runs the web app on a free Hugging Face Space (CPU basic). Optional "Sign in with Hugging Face" for repository scans is configured in `.streamlit/secrets.toml` (see `.streamlit/secrets.example.toml`). Each session's scans are listed in the sidebar and can be downloaded as JSON; nothing is stored on the server.
+`deploy/huggingface/Dockerfile` packages the web app with Joern, Semgrep, CodeBERT and the trained models in one container (`docker build -f deploy/huggingface/Dockerfile -t aegis-space .`, then `docker run -p 7860:7860 aegis-space`). It also runs as a Hugging Face Docker Space, which needs a Hugging Face PRO subscription. Optional "Sign in with Hugging Face" for repository scans is configured in `.streamlit/secrets.toml` (see `.streamlit/secrets.example.toml`). Each session's scans are listed in the sidebar and can be downloaded as JSON; nothing is stored on the server.
 
 ### Scanning at scale
 
